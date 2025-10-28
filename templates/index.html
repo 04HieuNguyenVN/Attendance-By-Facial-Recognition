@@ -1,0 +1,346 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ thống điểm danh thông minh</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link href="/static/css/main.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-user-check me-2"></i>
+                Hệ thống điểm danh thông minh
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/">
+                            <i class="fas fa-home me-1"></i>Trang chủ
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/students">
+                            <i class="fas fa-users me-1"></i>Quản lý sinh viên
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/classes">
+                            <i class="fas fa-chalkboard-teacher me-1"></i>Lớp học
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/reports">
+                            <i class="fas fa-chart-bar me-1"></i>Báo cáo
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/performance">
+                            <i class="fas fa-tachometer-alt me-1"></i>Hiệu suất
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/settings">
+                            <i class="fas fa-cog me-1"></i>Cài đặt
+                        </a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="fas fa-user me-1"></i>Admin
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/settings"><i class="fas fa-user-circle me-1"></i>Hồ sơ</a></li>
+                            <li><a class="dropdown-item" href="/logout"><i class="fas fa-sign-out-alt me-1"></i>Đăng xuất</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container-fluid mt-4">
+        <div class="row">
+            <!-- Left Column - Camera -->
+            <div class="col-lg-6 col-md-12 mb-4">
+                <div class="card h-100">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-video me-2"></i>Camera trực tiếp
+                        </h5>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="video-container">
+                            <img id="video-stream" src="/video_feed" alt="Video feed" class="video-stream" 
+                                 onerror="console.error('Failed to load video feed'); this.style.border='2px solid red';" 
+                                 onload="console.log('Video feed loaded successfully');" />
+                            <div class="video-overlay">
+                                <div class="recognition-status" id="recognition-status">
+                                    <i class="fas fa-eye me-1"></i>Đang nhận diện...
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-footer">
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <button id="reload-faces" class="btn btn-success w-100">
+                                    <i class="fas fa-sync-alt me-1"></i>Cập nhật dữ liệu khuôn mặt
+                                </button>
+                            </div>
+                            <div class="col-md-6">
+                                <button id="toggle-camera" class="btn btn-warning w-100">
+                                    <i class="fas fa-video me-1"></i>Bật Camera
+                                </button>
+                            </div>
+                        </div>
+                        <div class="row g-2 mt-2">
+                            <div class="col-12">
+                                <div class="camera-status d-flex align-items-center justify-content-center">
+                                    <span class="status-indicator me-2"></span>
+                                    <span id="camera-status-text">Đang kiểm tra...</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="reload-result" class="mt-2 text-center"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column - Attendance List -->
+            <div class="col-lg-6 col-md-12 mb-4">
+                <div class="card h-100">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-list-check me-2"></i>Danh sách điểm danh hôm nay
+                            <span class="badge bg-light text-dark ms-2" id="attendance-count">{{ attendance|length if attendance else 0 }}</span>
+                        </h5>
+                    </div>
+                    <div class="card-body p-0">
+                        {% if attendance and attendance|length > 0 %}
+                        <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                            <table class="table table-hover mb-0">
+                                <thead class="table-light sticky-top">
+                                    <tr>
+                                        <th width="5%">#</th>
+                                        <th width="35%">Họ tên</th>
+                                        <th width="30%">Thời gian</th>
+                                        <th width="20%">Trạng thái</th>
+                                        <th width="10%">Hành động</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in attendance %}
+                                    <tr>
+                                        <td>{{ loop.index }}</td>
+                                        <td>
+                                            <div class="d-flex align-items-center">
+                                                <div class="avatar-sm bg-primary text-white rounded-circle d-flex align-items-center justify-content-center me-2">
+                                                    {{ row.full_name[0].upper() if row.full_name else 'N' }}
+                                                </div>
+                                                <div>
+                                                    <div class="fw-bold">{{ row.full_name if row.full_name else 'Không có tên' }}</div>
+                                                    <small class="text-muted">ID: {{ row.student_id if row.student_id else 'N/A' }}</small>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div>{{ row.timestamp[:19] if row.timestamp else 'N/A' }}</div>
+                                            <small class="text-muted">{{ row.date if row.date else 'N/A' }}</small>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-success">
+                                                <i class="fas fa-check me-1"></i>Đã điểm danh
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-primary" onclick="viewDetails('{{ row.full_name if row.full_name else 'N/A' }}')" title="Xem chi tiết">
+                                                <i class="fas fa-eye"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <div class="text-center py-5">
+                            <i class="fas fa-user-times fa-3x text-muted mb-3"></i>
+                            <h5 class="text-muted">Chưa có sinh viên nào điểm danh</h5>
+                            <p class="text-muted">Hệ thống sẽ tự động nhận diện và điểm danh khi có sinh viên xuất hiện trước camera.</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Statistics Cards -->
+        <div class="row mt-4">
+            <div class="col-md-3 col-sm-6 mb-3">
+                <div class="card bg-primary text-white">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h6 class="card-title">Tổng sinh viên</h6>
+                                <h3 class="mb-0" id="total-students">0</h3>
+                            </div>
+                            <div class="align-self-center">
+                                <i class="fas fa-users fa-2x opacity-75"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6 mb-3">
+                <div class="card bg-success text-white">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h6 class="card-title">Đã điểm danh</h6>
+                                <h3 class="mb-0" id="attended-students">{{ attendance|length if attendance else 0 }}</h3>
+                            </div>
+                            <div class="align-self-center">
+                                <i class="fas fa-check-circle fa-2x opacity-75"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6 mb-3">
+                <div class="card bg-warning text-white">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h6 class="card-title">Tỷ lệ điểm danh</h6>
+                                <h3 class="mb-0" id="attendance-rate">0%</h3>
+                            </div>
+                            <div class="align-self-center">
+                                <i class="fas fa-percentage fa-2x opacity-75"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6 mb-3">
+                <div class="card bg-info text-white">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h6 class="card-title">Trạng thái hệ thống</h6>
+                                <h6 class="mb-0" id="system-status">
+                                    <i class="fas fa-circle text-success me-1"></i>Hoạt động
+                                </h6>
+                            </div>
+                            <div class="align-self-center">
+                                <i class="fas fa-server fa-2x opacity-75"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-light text-center text-muted py-3 mt-5">
+        <div class="container">
+            <small>&copy; 2024 Hệ thống điểm danh thông minh. Phát triển bởi AI Assistant.</small>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Custom JS -->
+    <script src="/static/js/main.js"></script>
+    
+    <script>
+        // Wait for DOM to be ready
+        document.addEventListener('DOMContentLoaded', () => {
+            // Reload faces functionality
+            const reloadBtn = document.getElementById('reload-faces');
+            if (reloadBtn) {
+                reloadBtn.addEventListener('click', async () => {
+                    const btn = document.getElementById('reload-faces');
+                    const result = document.getElementById('reload-result');
+                    const icon = btn.querySelector('i');
+                    
+                    btn.disabled = true;
+                    icon.className = 'fas fa-spinner fa-spin me-1';
+                    result.innerHTML = '<div class="alert alert-info mb-0"><i class="fas fa-spinner fa-spin me-1"></i>Đang cập nhật...</div>';
+                    
+                    try {
+                        const res = await fetch('/update_faces', { method: 'POST' });
+                        const text = await res.text();
+                        if (res.ok) {
+                            result.innerHTML = `<div class="alert alert-success mb-0"><i class="fas fa-check me-1"></i>${text}</div>`;
+                            setTimeout(() => location.reload(), 1500);
+                        } else {
+                            result.innerHTML = `<div class="alert alert-danger mb-0"><i class="fas fa-exclamation-triangle me-1"></i>Lỗi: ${text}</div>`;
+                        }
+                    } catch (err) {
+                        result.innerHTML = `<div class="alert alert-danger mb-0"><i class="fas fa-exclamation-triangle me-1"></i>Lỗi: ${err.message}</div>`;
+                    } finally {
+                        btn.disabled = false;
+                        icon.className = 'fas fa-sync-alt me-1';
+                    }
+                });
+            }
+
+            // Refresh attendance
+            const refreshBtn = document.getElementById('refresh-attendance');
+            if (refreshBtn) {
+                refreshBtn.addEventListener('click', () => {
+                    location.reload();
+                });
+            }
+
+            // View details function
+            window.viewDetails = function(name) {
+                alert(`Chi tiết điểm danh của: ${name}`);
+            };
+
+            // Update statistics
+            async function updateStatistics() {
+                try {
+                    const response = await fetch('/api/statistics');
+                    const stats = await response.json();
+                    
+                    const totalEl = document.getElementById('total-students');
+                    const attendedEl = document.getElementById('attended-students');
+                    const rateEl = document.getElementById('attendance-rate');
+                    
+                    if (totalEl) totalEl.textContent = stats.total_students || 0;
+                    if (attendedEl) attendedEl.textContent = stats.attended_students || 0;
+                    if (rateEl) rateEl.textContent = (stats.attendance_rate || 0) + '%';
+                } catch (error) {
+                    console.error('Error updating statistics:', error);
+                }
+            }
+
+            // Update statistics every 30 seconds
+            setInterval(updateStatistics, 30000);
+            
+            // Initial statistics update
+            updateStatistics();
+        });
+
+        function viewDetails(name) {
+            alert('Chi tiết sinh viên: ' + name);
+        }
+    </script>
+</body>
+</html>

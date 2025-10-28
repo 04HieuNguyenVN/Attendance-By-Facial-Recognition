@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quản lý hệ thống - Hệ thống điểm danh</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .management-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: blur(10px);
+            margin: 2rem auto;
+            max-width: 1200px;
+            padding: 2rem;
+        }
+        
+        .management-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        
+        .management-header h2 {
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        
+        .management-header p {
+            color: #666;
+            margin-bottom: 0;
+        }
+        
+        .card {
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+            margin-bottom: 1.5rem;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+        }
+        
+        .card-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 15px 15px 0 0 !important;
+            border: none;
+            padding: 1rem 1.5rem;
+        }
+        
+        .card-body {
+            padding: 1.5rem;
+        }
+        
+        .btn-management {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 10px;
+            padding: 12px 20px;
+            font-weight: 600;
+            color: white;
+            transition: all 0.3s ease;
+            margin: 0.25rem;
+        }
+        
+        .btn-management:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+            color: white;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            border: none;
+            border-radius: 10px;
+            padding: 12px 20px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin: 0.25rem;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
+        
+        .camera-controls {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .camera-status {
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-weight: 600;
+            margin-right: 1rem;
+        }
+        
+        .camera-status.active {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .camera-status.inactive {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .back-link {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .back-link:hover {
+            color: #764ba2;
+            text-decoration: underline;
+        }
+        
+        .logout-link {
+            color: #dc3545;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .logout-link:hover {
+            color: #c82333;
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="management-container">
+            <div class="management-header">
+                <div class="mb-3">
+                    <i class="fas fa-cogs fa-3x text-primary"></i>
+                </div>
+                <h2>Quản lý hệ thống</h2>
+                <p>Trang quản lý và cấu hình hệ thống điểm danh</p>
+            </div>
+            
+            <!-- Camera Controls -->
+            <div class="camera-controls">
+                <h5><i class="fas fa-video me-2"></i>Điều khiển Camera</h5>
+                <div class="d-flex align-items-center">
+                    <span class="camera-status" id="cameraStatus">Đang kiểm tra...</span>
+                    <button class="btn btn-success btn-sm" id="enableCameraBtn" onclick="toggleCamera(true)">
+                        <i class="fas fa-play me-1"></i>Bật Camera
+                    </button>
+                    <button class="btn btn-danger btn-sm" id="disableCameraBtn" onclick="toggleCamera(false)">
+                        <i class="fas fa-stop me-1"></i>Tắt Camera
+                    </button>
+                </div>
+            </div>
+            
+            <div class="row">
+                <!-- Student Management -->
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="fas fa-users me-2"></i>Quản lý sinh viên
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <p class="card-text">Quản lý thông tin sinh viên và hình ảnh khuôn mặt</p>
+                            <div class="d-grid gap-2">
+                                <a href="/students" class="btn btn-management">
+                                    <i class="fas fa-list me-2"></i>Danh sách sinh viên
+                                </a>
+                                <a href="/register" class="btn btn-management">
+                                    <i class="fas fa-user-plus me-2"></i>Thêm sinh viên mới
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Attendance Management -->
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="fas fa-calendar-check me-2"></i>Quản lý điểm danh
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <p class="card-text">Xem và quản lý báo cáo điểm danh</p>
+                            <div class="d-grid gap-2">
+                                <a href="/reports" class="btn btn-management">
+                                    <i class="fas fa-chart-bar me-2"></i>Báo cáo điểm danh
+                                </a>
+                                <a href="/export" class="btn btn-management">
+                                    <i class="fas fa-download me-2"></i>Xuất báo cáo
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- System Settings -->
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="fas fa-cog me-2"></i>Cài đặt hệ thống
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <p class="card-text">Cấu hình và tối ưu hóa hệ thống</p>
+                            <div class="d-grid gap-2">
+                                <a href="/settings" class="btn btn-management">
+                                    <i class="fas fa-sliders-h me-2"></i>Cài đặt chung
+                                </a>
+                                <a href="/performance" class="btn btn-management">
+                                    <i class="fas fa-tachometer-alt me-2"></i>Hiệu suất hệ thống
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Database Management -->
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="fas fa-database me-2"></i>Quản lý Database
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <p class="card-text">Sao lưu và khôi phục dữ liệu</p>
+                            <div class="d-grid gap-2">
+                                <button class="btn btn-management" onclick="backupDatabase()">
+                                    <i class="fas fa-save me-2"></i>Sao lưu Database
+                                </button>
+                                <button class="btn btn-secondary" onclick="restoreDatabase()">
+                                    <i class="fas fa-upload me-2"></i>Khôi phục Database
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="text-center mt-4">
+                <a href="/" class="back-link me-3">
+                    <i class="fas fa-home me-2"></i>Trang chủ
+                </a>
+                <a href="/logout" class="logout-link">
+                    <i class="fas fa-sign-out-alt me-2"></i>Đăng xuất
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Kiểm tra trạng thái camera
+        async function checkCameraStatus() {
+            try {
+                const response = await fetch('/api/camera/status');
+                const data = await response.json();
+                
+                const statusElement = document.getElementById('cameraStatus');
+                const enableBtn = document.getElementById('enableCameraBtn');
+                const disableBtn = document.getElementById('disableCameraBtn');
+                
+                if (data.enabled && data.opened) {
+                    statusElement.textContent = 'Camera đang hoạt động';
+                    statusElement.className = 'camera-status active';
+                    enableBtn.disabled = true;
+                    disableBtn.disabled = false;
+                } else {
+                    statusElement.textContent = 'Camera đã tắt';
+                    statusElement.className = 'camera-status inactive';
+                    enableBtn.disabled = false;
+                    disableBtn.disabled = true;
+                }
+            } catch (error) {
+                console.error('Error checking camera status:', error);
+            }
+        }
+        
+        // Bật/tắt camera
+        async function toggleCamera(enabled) {
+            try {
+                const response = await fetch('/api/camera/toggle', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ enabled: enabled })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    checkCameraStatus();
+                } else {
+                    alert('Lỗi: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error toggling camera:', error);
+                alert('Lỗi kết nối: ' + error.message);
+            }
+        }
+        
+        // Sao lưu database
+        async function backupDatabase() {
+            try {
+                const response = await fetch('/api/backup', {
+                    method: 'POST'
+                });
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `backup_${new Date().toISOString().split('T')[0]}.db`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                } else {
+                    alert('Lỗi khi sao lưu database');
+                }
+            } catch (error) {
+                console.error('Error backing up database:', error);
+                alert('Lỗi kết nối: ' + error.message);
+            }
+        }
+        
+        // Khôi phục database
+        function restoreDatabase() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.db';
+            input.onchange = async function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    
+                    try {
+                        const response = await fetch('/api/restore', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (data.message) {
+                            alert('Khôi phục thành công: ' + data.message);
+                            location.reload();
+                        } else {
+                            alert('Lỗi: ' + data.error);
+                        }
+                    } catch (error) {
+                        console.error('Error restoring database:', error);
+                        alert('Lỗi kết nối: ' + error.message);
+                    }
+                }
+            };
+            input.click();
+        }
+        
+        // Kiểm tra trạng thái camera khi trang load
+        document.addEventListener('DOMContentLoaded', function() {
+            checkCameraStatus();
+            // Kiểm tra lại mỗi 5 giây
+            setInterval(checkCameraStatus, 5000);
+        });
+    </script>
+</body>
+</html>

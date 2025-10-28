@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quản lý sinh viên - Hệ thống điểm danh thông minh</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link href="/static/css/style.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-user-check me-2"></i>
+                Hệ thống điểm danh thông minh
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">
+                            <i class="fas fa-home me-1"></i>Trang chủ
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/students">
+                            <i class="fas fa-users me-1"></i>Quản lý sinh viên
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/reports">
+                            <i class="fas fa-chart-bar me-1"></i>Báo cáo
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/settings">
+                            <i class="fas fa-cog me-1"></i>Cài đặt
+                        </a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="fas fa-user me-1"></i>Admin
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/settings"><i class="fas fa-user-circle me-1"></i>Hồ sơ</a></li>
+                            <li><a class="dropdown-item" href="/logout"><i class="fas fa-sign-out-alt me-1"></i>Đăng xuất</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container-fluid mt-4">
+        <!-- Page Header -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h2><i class="fas fa-users me-2"></i>Quản lý sinh viên</h2>
+                        <p class="text-muted mb-0">Thêm, sửa, xóa và quản lý thông tin sinh viên</p>
+                    </div>
+                    <div>
+                        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addStudentModal">
+                            <i class="fas fa-plus me-1"></i>Thêm sinh viên
+                        </button>
+                        <button class="btn btn-success" onclick="refreshStudents()">
+                            <i class="fas fa-sync-alt me-1"></i>Làm mới
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Search and Filter -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="input-group">
+                    <span class="input-group-text"><i class="fas fa-search"></i></span>
+                    <input type="text" class="form-control" id="searchInput" placeholder="Tìm kiếm sinh viên...">
+                </div>
+            </div>
+            <div class="col-md-3">
+                <select class="form-select" id="classFilter" aria-label="Lọc theo lớp">
+                    <option value="">Tất cả lớp</option>
+                    <option value="CNTT">CNTT</option>
+                    <option value="KT">Kế toán</option>
+                    <option value="QTKD">Quản trị kinh doanh</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <select class="form-select" id="statusFilter" aria-label="Lọc theo trạng thái">
+                    <option value="">Tất cả trạng thái</option>
+                    <option value="active">Hoạt động</option>
+                    <option value="inactive">Không hoạt động</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Students Table -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-list me-2"></i>Danh sách sinh viên
+                            <span class="badge bg-light text-dark ms-2" id="studentCount">0</span>
+                        </h5>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0" id="studentsTable">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th width="5%">#</th>
+                                        <th width="15%">Mã SV</th>
+                                        <th width="25%">Họ tên</th>
+                                        <th width="15%">Lớp</th>
+                                        <th width="15%">Email</th>
+                                        <th width="10%">SĐT</th>
+                                        <th width="10%">Trạng thái</th>
+                                        <th width="5%">Hành động</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="studentsTableBody">
+                                    <!-- Students will be loaded here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Student Modal -->
+    <div class="modal fade" id="addStudentModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-user-plus me-2"></i>Thêm sinh viên mới
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="addStudentForm">
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="studentId" class="form-label">Mã sinh viên <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="studentId" name="student_id" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="fullName" class="form-label">Họ và tên <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="fullName" name="full_name" required>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="email" class="form-label">Email</label>
+                                <input type="email" class="form-control" id="email" name="email">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="phone" class="form-label">Số điện thoại</label>
+                                <input type="tel" class="form-control" id="phone" name="phone">
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="className" class="form-label">Lớp</label>
+                                <select class="form-select" id="className" name="class_name">
+                                    <option value="">Chọn lớp</option>
+                                    <option value="CNTT">CNTT</option>
+                                    <option value="KT">Kế toán</option>
+                                    <option value="QTKD">Quản trị kinh doanh</option>
+                                    <option value="NN">Ngoại ngữ</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="faceImage" class="form-label">Ảnh khuôn mặt</label>
+                                <input type="file" class="form-control" id="faceImage" name="face_image" accept="image/*">
+                                <div class="form-text">Chọn ảnh khuôn mặt rõ nét để nhận diện</div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-12">
+                                <div class="alert alert-info">
+                                    <i class="fas fa-info-circle me-2"></i>
+                                    <strong>Lưu ý:</strong> Sau khi thêm sinh viên, hệ thống sẽ tự động xử lý ảnh khuôn mặt để nhận diện.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-1"></i>Lưu sinh viên
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Student Modal -->
+    <div class="modal fade" id="editStudentModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-user-edit me-2"></i>Chỉnh sửa sinh viên
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="editStudentForm">
+                    <div class="modal-body">
+                        <input type="hidden" id="editStudentId" name="student_id">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="editFullName" class="form-label">Họ và tên <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="editFullName" name="full_name" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="editEmail" class="form-label">Email</label>
+                                <input type="email" class="form-control" id="editEmail" name="email">
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="editPhone" class="form-label">Số điện thoại</label>
+                                <input type="tel" class="form-control" id="editPhone" name="phone">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="editClassName" class="form-label">Lớp</label>
+                                <select class="form-select" id="editClassName" name="class_name">
+                                    <option value="">Chọn lớp</option>
+                                    <option value="CNTT">CNTT</option>
+                                    <option value="KT">Kế toán</option>
+                                    <option value="QTKD">Quản trị kinh doanh</option>
+                                    <option value="NN">Ngoại ngữ</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="editFaceImage" class="form-label">Ảnh khuôn mặt mới</label>
+                                <input type="file" class="form-control" id="editFaceImage" name="face_image" accept="image/*">
+                                <div class="form-text">Chọn ảnh mới để cập nhật khuôn mặt</div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Trạng thái</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="editIsActive" name="is_active" checked>
+                                    <label class="form-check-label" for="editIsActive">
+                                        Hoạt động
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-1"></i>Cập nhật
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div class="modal fade" id="deleteStudentModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title text-danger">
+                        <i class="fas fa-exclamation-triangle me-2"></i>Xác nhận xóa
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Bạn có chắc chắn muốn xóa sinh viên <strong id="deleteStudentName"></strong>?</p>
+                    <div class="alert alert-warning">
+                        <i class="fas fa-warning me-2"></i>
+                        <strong>Cảnh báo:</strong> Hành động này không thể hoàn tác. Tất cả dữ liệu điểm danh của sinh viên sẽ bị ảnh hưởng.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-danger" id="confirmDeleteBtn">
+                        <i class="fas fa-trash me-1"></i>Xóa sinh viên
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Custom JS -->
+    <script src="/static/js/app.js"></script>
+    
+    <script>
+        class StudentManager {
+            constructor() {
+                this.students = [];
+                this.filteredStudents = [];
+                this.currentStudentId = null;
+                this.init();
+            }
+
+            init() {
+                this.setupEventListeners();
+                this.loadStudents();
+            }
+
+            setupEventListeners() {
+                // Search input
+                document.getElementById('searchInput').addEventListener('input', (e) => {
+                    this.filterStudents();
+                });
+
+                // Filter selects
+                document.getElementById('classFilter').addEventListener('change', () => {
+                    this.filterStudents();
+                });
+
+                document.getElementById('statusFilter').addEventListener('change', () => {
+                    this.filterStudents();
+                });
+
+                // Add student form
+                document.getElementById('addStudentForm').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.addStudent();
+                });
+
+                // Edit student form
+                document.getElementById('editStudentForm').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.updateStudent();
+                });
+
+                // Delete confirmation
+                document.getElementById('confirmDeleteBtn').addEventListener('click', () => {
+                    this.deleteStudent();
+                });
+            }
+
+            async loadStudents() {
+                try {
+                    const response = await fetch('/api/students');
+                    if (!response.ok) throw new Error('Failed to load students');
+                    
+                    this.students = await response.json();
+                    this.filteredStudents = [...this.students];
+                    this.renderStudents();
+                    this.updateStudentCount();
+                } catch (error) {
+                    console.error('Error loading students:', error);
+                    this.showNotification('Lỗi khi tải danh sách sinh viên', 'error');
+                }
+            }
+
+            filterStudents() {
+                const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+                const classFilter = document.getElementById('classFilter').value;
+                const statusFilter = document.getElementById('statusFilter').value;
+
+                this.filteredStudents = this.students.filter(student => {
+                    const matchesSearch = !searchTerm || 
+                        student.full_name.toLowerCase().includes(searchTerm) ||
+                        student.student_id.toLowerCase().includes(searchTerm) ||
+                        (student.email && student.email.toLowerCase().includes(searchTerm));
+
+                    const matchesClass = !classFilter || student.class_name === classFilter;
+                    const matchesStatus = !statusFilter || 
+                        (statusFilter === 'active' && student.is_active) ||
+                        (statusFilter === 'inactive' && !student.is_active);
+
+                    return matchesSearch && matchesClass && matchesStatus;
+                });
+
+                this.renderStudents();
+                this.updateStudentCount();
+            }
+
+            renderStudents() {
+                const tbody = document.getElementById('studentsTableBody');
+                tbody.innerHTML = '';
+
+                this.filteredStudents.forEach((student, index) => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${index + 1}</td>
+                        <td><code>${student.student_id}</code></td>
+                        <td>
+                            <div class="d-flex align-items-center">
+                                <div class="avatar-sm bg-primary text-white rounded-circle d-flex align-items-center justify-content-center me-2">
+                                    ${student.full_name[0].toUpperCase()}
+                                </div>
+                                <div>
+                                    <div class="fw-bold">${student.full_name}</div>
+                                    <small class="text-muted">${student.email || 'Chưa có email'}</small>
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            <span class="badge bg-info">${student.class_name || 'Chưa phân lớp'}</span>
+                        </td>
+                        <td>${student.email || '-'}</td>
+                        <td>${student.phone || '-'}</td>
+                        <td>
+                            <span class="badge ${student.is_active ? 'bg-success' : 'bg-secondary'}">
+                                ${student.is_active ? 'Hoạt động' : 'Không hoạt động'}
+                            </span>
+                        </td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary" onclick="studentManager.editStudent('${student.student_id}')" title="Chỉnh sửa">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-outline-danger" onclick="studentManager.confirmDelete('${student.student_id}', '${student.full_name}')" title="Xóa">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            }
+
+            updateStudentCount() {
+                const countElement = document.getElementById('studentCount');
+                if (countElement) {
+                    countElement.textContent = this.filteredStudents.length;
+                }
+            }
+
+            async addStudent() {
+                const form = document.getElementById('addStudentForm');
+                const formData = new FormData(form);
+
+                try {
+                    const response = await fetch('/api/students', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.text();
+                        throw new Error(error);
+                    }
+
+                    this.showNotification('Thêm sinh viên thành công!', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('addStudentModal')).hide();
+                    form.reset();
+                    this.loadStudents();
+                } catch (error) {
+                    console.error('Error adding student:', error);
+                    this.showNotification('Lỗi khi thêm sinh viên: ' + error.message, 'error');
+                }
+            }
+
+            async editStudent(studentId) {
+                const student = this.students.find(s => s.student_id === studentId);
+                if (!student) return;
+
+                // Populate edit form
+                document.getElementById('editStudentId').value = student.student_id;
+                document.getElementById('editFullName').value = student.full_name;
+                document.getElementById('editEmail').value = student.email || '';
+                document.getElementById('editPhone').value = student.phone || '';
+                document.getElementById('editClassName').value = student.class_name || '';
+                document.getElementById('editIsActive').checked = student.is_active;
+
+                // Show modal
+                const modal = new bootstrap.Modal(document.getElementById('editStudentModal'));
+                modal.show();
+            }
+
+            async updateStudent() {
+                const form = document.getElementById('editStudentForm');
+                const formData = new FormData(form);
+                const studentId = document.getElementById('editStudentId').value;
+
+                try {
+                    const response = await fetch(`/api/students/${studentId}`, {
+                        method: 'PUT',
+                        body: formData
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.text();
+                        throw new Error(error);
+                    }
+
+                    this.showNotification('Cập nhật sinh viên thành công!', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('editStudentModal')).hide();
+                    this.loadStudents();
+                } catch (error) {
+                    console.error('Error updating student:', error);
+                    this.showNotification('Lỗi khi cập nhật sinh viên: ' + error.message, 'error');
+                }
+            }
+
+            confirmDelete(studentId, studentName) {
+                this.currentStudentId = studentId;
+                document.getElementById('deleteStudentName').textContent = studentName;
+                
+                const modal = new bootstrap.Modal(document.getElementById('deleteStudentModal'));
+                modal.show();
+            }
+
+            async deleteStudent() {
+                if (!this.currentStudentId) return;
+
+                try {
+                    const response = await fetch(`/api/students/${this.currentStudentId}`, {
+                        method: 'DELETE'
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.text();
+                        throw new Error(error);
+                    }
+
+                    this.showNotification('Xóa sinh viên thành công!', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('deleteStudentModal')).hide();
+                    this.loadStudents();
+                } catch (error) {
+                    console.error('Error deleting student:', error);
+                    this.showNotification('Lỗi khi xóa sinh viên: ' + error.message, 'error');
+                }
+            }
+
+            showNotification(message, type = 'info', duration = 3000) {
+                const notification = document.createElement('div');
+                notification.className = `alert alert-${type === 'error' ? 'danger' : type} alert-dismissible fade show position-fixed`;
+                notification.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+                
+                const iconClass = {
+                    'info': 'fas fa-info-circle',
+                    'success': 'fas fa-check-circle',
+                    'warning': 'fas fa-exclamation-triangle',
+                    'error': 'fas fa-times-circle'
+                }[type] || 'fas fa-info-circle';
+                
+                notification.innerHTML = `
+                    <i class="${iconClass} me-2"></i>${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                `;
+                
+                document.body.appendChild(notification);
+                
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.remove();
+                    }
+                }, duration);
+            }
+        }
+
+        // Initialize student manager
+        let studentManager;
+        document.addEventListener('DOMContentLoaded', () => {
+            studentManager = new StudentManager();
+        });
+
+        // Global functions
+        function refreshStudents() {
+            if (studentManager) {
+                studentManager.loadStudents();
+            }
+        }
+    </script>
+</body>
+</html>
