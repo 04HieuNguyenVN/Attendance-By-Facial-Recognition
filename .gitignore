@@ -84,15 +84,38 @@ backup/
 cache/
 .cache/
 
-# Test files
+# Test files and debug scripts
 test_*.py
 *_test.py
 tests/
+check_*.py
+debug_*.py
+fix_*.py
+auto_*.py
+manage_*.py
+clean_*.py
+run_*.py
+add_test_*.py
+
+# Backup directories
+data_backup/
+data_backup_old/
+backup/
+*_backup/
+
+# Summary and documentation files
+*_SUMMARY.md
+*SUMMARY.md
+BUGFIX*.md
+FIX_*.md
+OPTIMIZATION*.md
+TRACKING*.md
+
+# Test images
+test_images/
+test_output.*
+test_simple.*
 
 # Documentation build
 docs/_build/
 site/
-
-# Cleanup scripts
-cleanup.py
-optimize_repo.py

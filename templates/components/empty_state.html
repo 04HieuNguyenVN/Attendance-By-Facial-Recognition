@@ -1,0 +1,14 @@
+<!-- Empty State Component -->
+<!-- Usage: {% include 'components/empty_state.html' with context %} -->
+<!-- Required: empty_icon, empty_title, empty_message -->
+<!-- Optional: empty_action_text, empty_action_link -->
+<div class="text-center py-5">
+  <i class="{{ empty_icon }} fa-5x text-muted mb-3"></i>
+  <h4 class="text-muted">{{ empty_title }}</h4>
+  <p class="text-muted">{{ empty_message }}</p>
+  {% if empty_action_text and empty_action_link %}
+  <a href="{{ empty_action_link }}" class="btn btn-primary mt-3">
+    <i class="fas fa-plus me-1"></i>{{ empty_action_text }}
+  </a>
+  {% endif %}
+</div>

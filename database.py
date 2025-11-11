@@ -200,13 +200,21 @@ class DatabaseManager:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
-                # Tìm class_id từ class_name
+                # Tìm hoặc tạo class_id từ class_name
                 class_id = None
                 if class_name:
                     cursor.execute('SELECT id FROM classes WHERE class_name = ?', (class_name,))
                     result = cursor.fetchone()
                     if result:
                         class_id = result[0]
+                    else:
+                        # Tạo lớp mới nếu chưa có
+                        # Generate class_code from class_name (remove spaces, uppercase)
+                        class_code = class_name.replace(' ', '').upper()[:20]
+                        cursor.execute('INSERT INTO classes (class_code, class_name) VALUES (?, ?)', 
+                                     (class_code, class_name))
+                        class_id = cursor.lastrowid
+                        logger.info(f"Created new class: {class_name} (ID: {class_id}, Code: {class_code})")
                 
                 cursor.execute('''
                     INSERT INTO students (student_id, full_name, email, phone, class_id, face_image_path)
@@ -215,8 +223,8 @@ class DatabaseManager:
                 conn.commit()
                 logger.info(f"Added student: {full_name} ({student_id})")
                 return True
-            except sqlite3.IntegrityError:
-                logger.error(f"Student ID {student_id} already exists")
+            except sqlite3.IntegrityError as e:
+                logger.error(f"Student ID {student_id} already exists: {e}")
                 return False
     
     def get_student(self, student_id):
@@ -287,6 +295,88 @@ class DatabaseManager:
             conn.commit()
             logger.info(f"Marked attendance for {student_name} ({student_id})")
             return True
+    
+    def update_last_seen(self, student_id, student_name):
+        """Cập nhật lần cuối thấy sinh viên (để tracking presence)"""
+        today = date.today().isoformat()
+        now = datetime.now().isoformat()
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Tìm bản ghi điểm danh hôm nay
+            cursor.execute('''
+                SELECT id, check_in_time, check_out_time FROM attendance 
+                WHERE student_id = ? AND attendance_date = ? AND status = 'present'
+                ORDER BY check_in_time DESC LIMIT 1
+            ''', (student_id, today))
+            
+            record = cursor.fetchone()
+            if record:
+                # Cập nhật notes với timestamp cuối cùng
+                cursor.execute('''
+                    UPDATE attendance 
+                    SET notes = ?
+                    WHERE id = ?
+                ''', (f"Last seen: {now}", record['id']))
+                conn.commit()
+                return True
+            return False
+    
+    def mark_checkout(self, student_id):
+        """Đánh dấu checkout cho sinh viên"""
+        today = date.today().isoformat()
+        now = datetime.now().isoformat()
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Tìm bản ghi điểm danh hôm nay chưa checkout
+            cursor.execute('''
+                SELECT id, check_in_time FROM attendance 
+                WHERE student_id = ? AND attendance_date = ? AND check_out_time IS NULL
+                ORDER BY check_in_time DESC LIMIT 1
+            ''', (student_id, today))
+            
+            record = cursor.fetchone()
+            if record:
+                cursor.execute('''
+                    UPDATE attendance 
+                    SET check_out_time = ?
+                    WHERE id = ?
+                ''', (now, record['id']))
+                conn.commit()
+                logger.info(f"Marked checkout for student {student_id}")
+                return True
+            return False
+    
+    def get_attendance_with_duration(self, attendance_date=None):
+        """Lấy danh sách điểm danh với thời gian có mặt"""
+        if not attendance_date:
+            attendance_date = date.today().isoformat()
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT 
+                    a.*,
+                    s.full_name, 
+                    s.email, 
+                    s.phone, 
+                    c.class_name,
+                    CASE 
+                        WHEN a.check_out_time IS NOT NULL THEN
+                            CAST((julianday(a.check_out_time) - julianday(a.check_in_time)) * 24 * 60 AS INTEGER)
+                        ELSE
+                            CAST((julianday('now', 'localtime') - julianday(a.check_in_time)) * 24 * 60 AS INTEGER)
+                    END as duration_minutes
+                FROM attendance a
+                LEFT JOIN students s ON a.student_id = s.student_id
+                LEFT JOIN classes c ON s.class_id = c.id
+                WHERE a.attendance_date = ?
+                ORDER BY a.check_in_time DESC
+            ''', (attendance_date,))
+            return cursor.fetchall()
     
     def get_today_attendance(self):
         """Lấy danh sách điểm danh hôm nay"""

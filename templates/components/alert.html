@@ -1,0 +1,20 @@
+<!-- Alert Component -->
+<!-- Usage: {% include 'components/alert.html' with context %} -->
+<!-- Required variables: alert_type (success/danger/warning/info), alert_message -->
+{% if alert_message %}
+<div
+  class="alert alert-{{ alert_type|default('info') }} alert-dismissible fade show"
+  role="alert"
+>
+  <i
+    class="fas {% if alert_type == 'success' %}fa-check-circle {% elif alert_type == 'danger' %}fa-exclamation-circle {% elif alert_type == 'warning' %}fa-exclamation-triangle {% else %}fa-info-circle {% endif %} me-2"
+  ></i>
+  {{ alert_message }}
+  <button
+    type="button"
+    class="btn-close"
+    data-bs-dismiss="alert"
+    aria-label="Close"
+  ></button>
+</div>
+{% endif %}

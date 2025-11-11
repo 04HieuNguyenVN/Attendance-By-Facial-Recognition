@@ -1,0 +1,30 @@
+<!-- Search and Filter Component -->
+<!-- Usage: {% include 'components/search_filter.html' with context %} -->
+<!-- Required variables: search_placeholder (optional), filter_options (optional) -->
+<div class="row mb-4">
+  <div class="col-md-6">
+    <div class="input-group">
+      <span class="input-group-text"><i class="fas fa-search"></i></span>
+      <input
+        type="text"
+        class="form-control"
+        id="searchInput"
+        placeholder="{{ search_placeholder|default('Tìm kiếm...') }}"
+        aria-label="Search"
+      />
+    </div>
+  </div>
+  {% if filter_options %}
+  <div class="col-md-3">
+    <select class="form-select" id="filterSelect" aria-label="Filter">
+      <option value="">Tất cả</option>
+      {% for option in filter_options %}
+      <option value="{{ option.value }}">{{ option.label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+  <div class="col-md-{{ '3' if filter_options else '6' }} text-end">
+    {% block filter_actions %}{% endblock %}
+  </div>
+</div>

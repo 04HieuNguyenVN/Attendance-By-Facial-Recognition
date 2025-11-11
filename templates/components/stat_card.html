@@ -1,0 +1,29 @@
+<!-- Statistics Card Component -->
+<!-- Usage: {% include 'components/stat_card.html' with context %} -->
+<!-- Required: stat_icon, stat_value, stat_label -->
+<!-- Optional: stat_color (primary/success/danger/warning/info), stat_trend -->
+<div
+  class="card stat-card h-100 {{ 'border-' + stat_color if stat_color else '' }}"
+>
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center">
+      <div>
+        <p class="text-muted mb-1 small">{{ stat_label }}</p>
+        <h3 class="mb-0 {{ 'text-' + stat_color if stat_color else '' }}">
+          {{ stat_value }}
+        </h3>
+        {% if stat_trend %}
+        <small class="text-{{ 'success' if stat_trend > 0 else 'danger' }}">
+          <i
+            class="fas fa-arrow-{{ 'up' if stat_trend > 0 else 'down' }} me-1"
+          ></i>
+          {{ stat_trend|abs }}%
+        </small>
+        {% endif %}
+      </div>
+      <div class="text-{{ stat_color|default('primary') }} opacity-50">
+        <i class="{{ stat_icon }} fa-3x"></i>
+      </div>
+    </div>
+  </div>
+</div>

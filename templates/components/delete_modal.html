@@ -1,0 +1,67 @@
+<!-- Modal Delete Confirmation Component -->
+<!-- Usage: Include this in your page and call openDeleteModal(id, name, deleteFunction) -->
+<div
+  class="modal fade"
+  id="deleteConfirmModal"
+  tabindex="-1"
+  aria-labelledby="deleteConfirmModalLabel"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title" id="deleteConfirmModalLabel">
+          <i class="fas fa-exclamation-triangle me-2"></i>Xác nhận xóa
+        </h5>
+        <button
+          type="button"
+          class="btn-close btn-close-white"
+          data-bs-dismiss="modal"
+          aria-label="Close"
+        ></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-0">
+          Bạn có chắc chắn muốn xóa <strong id="deleteItemName"></strong>?
+        </p>
+        <p class="text-muted small mb-0 mt-2">
+          Hành động này không thể hoàn tác!
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          <i class="fas fa-times me-1"></i>Hủy
+        </button>
+        <button type="button" class="btn btn-danger" id="confirmDeleteBtn">
+          <i class="fas fa-trash me-1"></i>Xóa
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let deleteModalInstance;
+  let deleteCallback;
+
+  function openDeleteModal(itemId, itemName, callback) {
+    document.getElementById("deleteItemName").textContent = itemName;
+    deleteCallback = () => callback(itemId);
+
+    const modalElement = document.getElementById("deleteConfirmModal");
+    deleteModalInstance = new bootstrap.Modal(modalElement);
+    deleteModalInstance.show();
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    const confirmBtn = document.getElementById("confirmDeleteBtn");
+    if (confirmBtn) {
+      confirmBtn.addEventListener("click", function () {
+        if (deleteCallback) {
+          deleteCallback();
+          deleteModalInstance.hide();
+        }
+      });
+    }
+  });
+</script>
