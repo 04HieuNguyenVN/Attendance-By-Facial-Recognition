@@ -1,3 +1,236 @@
+# Attendance By Facial Recognition
+
+README này cung cấp hướng dẫn và mô tả chi tiết cho dự án "Attendance By Facial
+Recognition" — một ứng dụng web để quản lý và điểm danh bằng nhận diện khuôn
+mặt. Nội dung trình bày bằng tiếng Việt, bao gồm chức năng, kiến trúc,
+hướng dẫn cài đặt, cách chạy và ghi chú về chế độ AI / demo.
+
+## Mục tiêu dự án
+
+- Tạo một hệ thống điểm danh dễ triển khai cho trường học / lớp học.
+- Cho phép thử nghiệm nhanh (demo mode) mà không cần cài đặt các thư viện AI nặng.
+- Cung cấp thư mục tham khảo `face_attendance/` chứa pipeline FaceNet / MTCNN
+  / anti-spoof để phát triển nâng cao.
+
+## Tính năng chính
+
+- Quản lý học sinh, lớp học và thông tin cơ bản.
+- Upload ảnh khuôn mặt và lưu nhiều mẫu cho mỗi học sinh (`student_face_samples`).
+- Điểm danh tự động từ camera (real-time) hoặc từ hình ảnh.
+- Giảm false-positive bằng cơ chế so sánh embedding + progress confirmation (nhiều frame liên tiếp).
+- Thông báo thời gian thực trên giao diện bằng SSE (Server-Sent Events).
+- Chế độ DEMO cho phép chạy ứng dụng mà không cần face_recognition / dlib.
+
+## Kiến trúc tổng quan
+
+- `app.py`: ứng dụng Flask chính, route xử lý, SSE, API.
+- `database.py`: helper và schema SQLite, các hàm CRUD cho `students`, `attendance`, `student_face_samples`.
+- `templates/` và `static/`: giao diện người dùng (HTML/CSS/JS).
+- `uploads/` và `data/`: nơi lưu ảnh upload và dữ liệu mẫu.
+- `face_attendance/`: mã tham khảo cho pipeline AI (không bắt buộc để chạy demo).
+
+## Cài đặt nhanh
+
+1. Clone repo và chuyển vào thư mục dự án:
+
+```powershell
+git clone https://github.com/04HieuNguyenVN/Attendance-By-Facial-Recognition.git
+cd "Attendance by facial recognition"
+```
+
+2. Tạo virtualenv và kích hoạt (Windows PowerShell):
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+3. Cài package cơ bản:
+
+```powershell
+pip install -r requirements.txt
+```
+
+Ghi chú: nếu bạn muốn bật tính năng AI đầy đủ (FaceNet / MTCNN / anti-spoof),
+chuẩn bị một môi trường riêng (virtualenv/conda) và cài các dependency nâng cao
+(xem lịch sử `requirements_advanced.txt` hoặc tài liệu trong `face_attendance/`).
+
+## Cấu hình
+
+Tạo file `.env` từ `./.env.example` và chỉnh các giá trị cần thiết:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Thiết lập tối thiểu:
+
+```env
+SECRET_KEY=your-random-secret-key
+DEMO_MODE=0
+CAMERA_INDEX=0
+```
+
+DEMO_MODE=1 sẽ bật chế độ giả lập (không cần camera hoặc thư viện dlib/face_recognition).
+
+## Chạy ứng dụng
+
+Chạy trong PowerShell:
+
+```powershell
+# nếu dùng virtualenv
+.\.venv\Scripts\python.exe app.py
+# hoặc dùng start.bat
+.\start.bat
+```
+
+Truy cập giao diện tại `http://127.0.0.1:5000`.
+
+## Chế độ AI vs Demo
+
+- Demo: phù hợp để kiểm tra giao diện, thao tác quản lý học sinh, báo cáo mà không
+  cần cài `dlib` hay `face_recognition`.
+- Full AI: khi muốn chạy pipeline nhận diện thực sự, cài thêm các thư viện AI
+  (TensorFlow, dlib, face-recognition, PyTorch nếu dùng anti-spoof). Khuyến nghị
+  dùng môi trường riêng và kiểm tra phiên bản tương thích.
+
+## Cấu trúc thư mục (tóm tắt)
+
+```
+├── app.py
+├── database.py
+├── logging_config.py
+├── requirements.txt
+├── .env.example
+├── start.bat
+├── README.md
+├── data/                 # ảnh mẫu đã tiền xử lý
+├── uploads/              # file do người dùng upload
+├── logs/
+├── templates/
+└── static/
+```
+
+## Chi tiết kỹ thuật đáng chú ý
+
+- Bảng `student_face_samples` trong DB lưu nhiều mẫu ảnh/embedding cho mỗi học sinh.
+- Logic nhận diện dùng embedding comparison: tính khoảng cách embedding và
+  so sánh với ngưỡng `FACE_DISTANCE_THRESHOLD` + `FACE_RECOGNITION_THRESHOLD`.
+- Progress confirmation: hệ thống đếm số frame liên tiếp nhận diện cùng một
+  người (ví dụ `REQUIRED_FRAMES = 30`) trước khi ghi điểm danh, giảm sai dương tính.
+- SSE: endpoint `/api/events/stream` phát event khi có bản ghi mới;
+  frontend sử dụng `EventSource` để hiển thị thông báo và tự động làm mới danh sách.
+
+## Sơ đồ pipeline xử lý (mô tả ngắn)
+
+Dưới đây là sơ đồ luồng xử lý một frame (hoặc một ảnh) trong hệ thống — từ
+việc lấy ảnh đến khi ghi nhận điểm danh và cập nhật giao diện:
+
+```
+Camera (OpenCV VideoCapture)
+    |
+    v
+  Chụp khung hình (BGR)
+    |
+    v
+  Chuyển BGR -> RGB
+    |
+    v
+  Phát hiện khuôn mặt: MTCNN (`face_attendance/align`)  HOẶC  Cascade OpenCV
+    |
+    v
+  Với mỗi khuôn mặt tìm được:
+    - Căn chỉnh / crop vùng mặt (padding, resize)
+    - Tiền xử lý (resize theo kích thước FaceNet, prewhiten / chuẩn hoá)
+    - (Tuỳ chọn) Kiểm tra anti-spoof (MiniFASNet, PyTorch)
+    - Trích xuất embedding (FaceNet TensorFlow `.pb`  HOẶC  `face_recognition` / dlib)
+    - Nhận dạng / đối sánh: classifier (SVM trên embedding) hoặc so sánh khoảng cách
+    - Cập nhật bộ đếm progress theo thời gian (REQUIRED_FRAMES)
+    |
+    v
+  Nếu xác nhận đủ progress -> ghi điểm danh (ghi vào SQLite)
+    |
+    v
+  Phát SSE event -> frontend hiển thị thông báo + refresh danh sách điểm danh
+    |
+    v
+  Vẽ overlay lên khung video (bbox, tên, progress) và stream về client
+```
+
+Phân tích tóm tắt (mỗi bước liên kết tới các file):
+
+- Capture frame: `app.py` (`ensure_video_capture`, video loop)
+- Detection: `face_attendance/align/detect_face.py` (MTCNN) hoặc OpenCV cascade fallback trong `services/face_service.py`.
+- Align / Crop / Preprocess: `face_attendance/facenet.py` (prewhiten) và `services/face_service.py` (`preprocess_face`).
+- Anti-spoof: `face_attendance/src/anti_spoof_predict.py` + `face_attendance/src/model_lib/*`.
+- Embedding: `services/face_service.py` (`get_embedding`) sử dụng FaceNet `.pb` (or `face_recognition` fallback).
+- Classifier / Matching: `services/training_service.py` (train SVM), classifier load in `services/face_service.py` (`facemodel.pkl`) or simple distance compare.
+- Progress / Temporal confirm: logic in `app.py` (`attendance_progress`, `REQUIRED_FRAMES`).
+- SSE + UI update: `app.py` (`/api/events/stream`) và frontend `templates/index.html`, `static/js/main.js`.
+
+Nếu bạn muốn, tôi có thể vẽ phiên bản mermaid (flowchart) để hiển thị trên GitHub nếu repo hỗ trợ mermaid rendering — hoặc tạo sơ đồ PNG/SVG và thêm vào `static/img/`.
+
+## Công nghệ & Thư viện
+
+Dưới đây liệt kê các thư viện/technology chính được sử dụng, chia thành 2 nhóm:
+
+1. Nhóm xử lý ảnh / Thị giác máy tính (CV)
+
+- `OpenCV` (`opencv-python`): xử lý ảnh/video, đọc camera, crop/resize hình, vẽ bounding box và overlay progress. Ứng dụng chính: `app.py` (video stream, preview, crop mặt), `services/training_service.py` (ghi ảnh mẫu). Cài: `pip install opencv-python`.
+- `face-recognition` (dựa trên `dlib`): phát hiện khuôn mặt và trích xuất embedding nhanh (thực tế là wrapper tiện lợi). Ứng dụng: nhận diện nhẹ trong chế độ non-FaceNet. Thư viện **tùy chọn** (khó cài trên Windows). Cài (nếu cần): `pip install face-recognition` (yêu cầu `dlib`).
+- `dlib`: thư viện nền tảng cho face-recognition (HOG/NN), dùng cho phát hiện face/landmark. Ứng dụng: phát hiện khuôn mặt, landmark. Cài đặc biệt trên Windows (cần Visual C++ Build Tools) hoặc dùng wheel prebuilt.
+- `Pillow` (`PIL`): thao tác ảnh phụ trợ (resize/convert) khi lưu/hiển thị. Cài: `pip install Pillow`.
+
+2. Nhóm AI / Deep Learning
+
+- `TensorFlow` / FaceNet model: dùng để tính embedding chất lượng cao (file mẫu `face_attendance/Models/20180402-114759.pb`). Ứng dụng: `face_attendance/facenet.py` và pipeline tham khảo trong `face_attendance/`. Đây là phần **tùy chọn**. Cài: `pip install tensorflow` hoặc `pip install tensorflow-cpu`.
+- `PyTorch`: dùng cho các mô hình anti-spoofing / MultiFTNet trong `face_attendance/src` (training và inference). Ứng dụng: `face_attendance/src/train_main.py` và anti-spoof inference. Cài: `pip install torch torchvision` (chọn phiên bản phù hợp với CUDA nếu cần).
+- `scikit-learn` (`sklearn`): dùng để huấn luyện SVM/classifier trên embedding (TrainingService lưu/huấn luyện `facemodel.pkl`). Ứng dụng: `services/training_service.py`. Cài: `pip install scikit-learn`.
+- `numpy`: xử lý mảng/embedding, bắt buộc cho hầu hết luồng numeric. Cài: `pip install numpy`.
+- `tensorboardX` / `tensorboard`: ghi logs khi train (xem `face_attendance/src/train_main.py`). Cài: `pip install tensorboardX` hoặc `pip install tensorboard`.
+
+Ghi chú cài đặt / vận hành
+
+- Một số thư viện AI (TensorFlow, PyTorch, dlib) **nặng** và có yêu cầu nền tảng (Visual Studio build tools, CUDA). Khuyến nghị tạo môi trường ảo riêng (ví dụ `.venv-ai`) để cài đặt khi cần.
+- `requirements.txt` chứa các package cơ bản để chạy ứng dụng ở chế độ demo. Các dependency nâng cao đã được lưu/archived trong lịch sử (`requirements_advanced.txt`) — khôi phục khi chuẩn bị môi trường AI.
+- Để chạy pipeline huấn luyện PyTorch (`face_attendance/src/train_main.py`), chuẩn bị dataset theo cấu hình `face_attendance/src/default_config.py` (mặc định `./datasets/rgb_image`) và cài các package trong nhóm AI.
+
+## Gỡ rối (Troubleshooting)
+
+- Lỗi khi cài `dlib` trên Windows: cài Visual C++ Build Tools hoặc dùng wheel
+  prebuilt. Hoặc chạy trong DEMO_MODE.
+- Nếu camera không hoạt động: kiểm tra `CAMERA_INDEX` trong `.env` và
+  đảm bảo camera không bị ứng dụng khác chiếm dụng.
+- Nếu nhận diện sai nhiều: thử điều chỉnh `FACE_DISTANCE_THRESHOLD` và
+  `REQUIRED_FRAMES` trong `app.py`.
+
+## Lưu ý bảo mật & pháp lý
+
+- Ứng dụng mang tính minh họa/giáo dục. Khi triển khai thực tế cần xem xét
+  chính sách bảo mật, quyền riêng tư và quy định pháp lý (GDPR / luật
+  địa phương) liên quan tới xử lý dữ liệu sinh trắc học.
+
+## Đóng góp
+
+Nếu bạn muốn đóng góp:
+
+1. Fork repository
+2. Tạo branch mới: `git checkout -b feature/your-feature`
+3. Commit, push và tạo Pull Request
+
+Các thay đổi lớn liên quan tới AI nên tách branch riêng và kèm hướng dẫn
+triển khai môi trường (requirements, model weights, notes).
+
+## Tác giả
+
+- `04HieuNguyenVN` (xem repo trên GitHub)
+
+---
+
+Phiên bản README: cập nhật bởi trợ lý (ngày 2025-11-15). Nếu bạn muốn bổ
+thêm phần tiếng Anh, hướng dẫn CI/CD, hoặc README rút gọn cho người dùng,
+hãy cho tôi biết để tôi cập nhật tiếp.
+
 # Hệ thống điểm danh bằng nhận diện khuôn mặt
 
 ## 🚀 Tính năng chính
