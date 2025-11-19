@@ -137,11 +137,26 @@ class DatabaseManager:
                 )
             ''')
             
+            # Bảng lưu nhiều ảnh mẫu của sinh viên (cho AI training)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS student_face_samples (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    student_id VARCHAR(20) NOT NULL,
+                    image_path VARCHAR(200) NOT NULL,
+                    embedding BLOB,
+                    quality_score REAL,
+                    is_primary BOOLEAN DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (student_id) REFERENCES students(student_id) ON DELETE CASCADE
+                )
+            ''')
+            
             # Tạo indexes để tối ưu hiệu suất
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(attendance_date)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_student ON attendance(student_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_students_active ON students(is_active)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_logs_created ON system_logs(created_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_face_samples_student ON student_face_samples(student_id)')
             
             # Thêm cài đặt mặc định
             self._insert_default_settings(cursor)
@@ -266,6 +281,104 @@ class DatabaseManager:
     def delete_student(self, student_id):
         """Xóa sinh viên (soft delete)"""
         return self.update_student(student_id, is_active=False)
+    
+    # === QUẢN LÝ ẢNH MẪU SINH VIÊN (CHO AI TRAINING) ===
+    
+    def add_face_sample(self, student_id, image_path, embedding=None, quality_score=None, is_primary=False):
+        """Thêm ảnh mẫu khuôn mặt cho sinh viên"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute('''
+                    INSERT INTO student_face_samples (student_id, image_path, embedding, quality_score, is_primary)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (student_id, image_path, embedding, quality_score, is_primary))
+                conn.commit()
+                logger.info(f"Added face sample for student {student_id}: {image_path}")
+                return cursor.lastrowid
+            except Exception as e:
+                logger.error(f"Failed to add face sample: {e}")
+                return None
+    
+    def get_face_samples(self, student_id):
+        """Lấy tất cả ảnh mẫu của sinh viên"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM student_face_samples 
+                WHERE student_id = ?
+                ORDER BY is_primary DESC, created_at DESC
+            ''', (student_id,))
+            return cursor.fetchall()
+    
+    def get_primary_face_sample(self, student_id):
+        """Lấy ảnh đại diện chính của sinh viên"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM student_face_samples 
+                WHERE student_id = ? AND is_primary = 1
+                LIMIT 1
+            ''', (student_id,))
+            return cursor.fetchone()
+    
+    def set_primary_face_sample(self, sample_id):
+        """Đặt một ảnh làm ảnh đại diện chính"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Lấy student_id từ sample_id
+            cursor.execute('SELECT student_id FROM student_face_samples WHERE id = ?', (sample_id,))
+            result = cursor.fetchone()
+            if not result:
+                return False
+            
+            student_id = result['student_id']
+            
+            # Bỏ primary của tất cả ảnh khác
+            cursor.execute('''
+                UPDATE student_face_samples 
+                SET is_primary = 0 
+                WHERE student_id = ?
+            ''', (student_id,))
+            
+            # Đặt ảnh này làm primary
+            cursor.execute('''
+                UPDATE student_face_samples 
+                SET is_primary = 1 
+                WHERE id = ?
+            ''', (sample_id,))
+            
+            conn.commit()
+            return True
+    
+    def delete_face_sample(self, sample_id):
+        """Xóa ảnh mẫu"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM student_face_samples WHERE id = ?', (sample_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    def get_all_student_embeddings(self):
+        """Lấy tất cả embeddings của sinh viên (cho training)"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT sfs.student_id, s.full_name, sfs.embedding, sfs.image_path
+                FROM student_face_samples sfs
+                JOIN students s ON sfs.student_id = s.student_id
+                WHERE s.is_active = 1 AND sfs.embedding IS NOT NULL
+                ORDER BY sfs.student_id, sfs.quality_score DESC
+            ''')
+            return cursor.fetchall()
+    
+    def count_face_samples(self, student_id):
+        """Đếm số lượng ảnh mẫu của sinh viên"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM student_face_samples WHERE student_id = ?', (student_id,))
+            return cursor.fetchone()[0]
     
     # === QUẢN LÝ ĐIỂM DANH ===
     def mark_attendance(self, student_id, student_name, status='present', confidence_score=None, notes=None):

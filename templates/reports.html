@@ -1,0 +1,22 @@
+{% extends "base.html" %} {% block title %}Báo cáo{% endblock %} {% block
+content %}
+<div class="container mt-4">
+  <div class="page-header">
+    <h1>Báo cáo</h1>
+    <p class="lead">Trang báo cáo tạm thời — dữ liệu sẽ được hiển thị ở đây.</p>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <p>
+        Chưa có báo cáo hiển thị. Bạn có thể quay lại sau hoặc mở
+        <a href="{{ url_for('students_page') }}">Danh sách sinh viên</a>.
+      </p>
+      <p>
+        Nếu muốn, tôi có thể thêm một báo cáo nhanh (ví dụ: thống kê điểm danh
+        hôm nay) và gọi API để lấy dữ liệu từ cơ sở dữ liệu.
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}

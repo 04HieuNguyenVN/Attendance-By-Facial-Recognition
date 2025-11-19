@@ -44,10 +44,9 @@ thống điểm danh thông minh{% endblock %} {% block content %}
                 <label class="me-2 mb-0 fw-bold">Camera:</label>
                 <div class="form-check form-switch">
                   <input
-                    class="form-check-input"
+                    class="form-check-input camera-toggle-input"
                     type="checkbox"
                     id="toggle-camera"
-                    style="width: 3em; height: 1.5em; cursor: pointer"
                   />
                   <label
                     class="form-check-label"
@@ -55,874 +54,978 @@ thống điểm danh thông minh{% endblock %} {% block content %}
                     id="camera-switch-label"
                     >Tắt</label
                   >
+                  <div class="card-header bg-success text-white">
+                    <h5 class="card-title mb-0">
+                      <i class="fas fa-list-check me-2"></i>Danh sách điểm danh
+                      hôm nay
+                      <span
+                        class="badge bg-light text-dark ms-2"
+                        id="attendance-count"
+                        >{{ attendance|length if attendance else 0 }}</span
+                      >
+                    </h5>
+                  </div>
+                  <div class="card-body p-0">
+                    {% if attendance and attendance|length > 0 %}
+                    <div class="table-responsive attendance-table-scroll">
+                      <table class="table table-hover mb-0">
+                        <thead class="table-light sticky-top">
+                          <tr>
+                            <th width="5%">#</th>
+                            <th width="30%">Họ tên</th>
+                            <th width="25%">Giờ vào</th>
+                            <th width="20%">Thời gian có mặt</th>
+                            <th width="15%">Trạng thái</th>
+                            <th width="5%">Hành động</th>
+                          </tr>
+                        </thead>
+                        <tbody id="attendance-table-body">
+                          {% for row in attendance %}
+                          <tr data-student-id="{{ row.student_id }}">
+                            <td>{{ loop.index }}</td>
+                            <td>
+                              <div class="d-flex align-items-center">
+                                <div
+                                  class="avatar-sm bg-primary text-white rounded-circle d-flex align-items-center justify-content-center me-2"
+                                >
+                                  {{ row.full_name[0].upper() if row.full_name
+                                  else "N" }}
+                                </div>
+                                <div>
+                                  <div class="fw-bold">
+                                    {{ row.full_name if row.full_name else
+                                    "Không có tên" }}
+                                  </div>
+                                  <small class="text-muted"
+                                    >ID: {{ row.student_id if row.student_id
+                                    else "N/A" }}</small
+                                  >
+                                </div>
+                              </div>
+                            </td>
+                            <td>
+                              <div>
+                                <i class="fas fa-clock me-1"></i>
+                                {{ row.timestamp[11:19] if row.timestamp else
+                                "N/A" }}
+                              </div>
+                              <small class="text-muted">
+                                {% if row.checkout_time %}
+                                <i class="fas fa-sign-out-alt me-1"></i>Ra: {{
+                                row.checkout_time[11:19] }} {% endif %}
+                              </small>
+                            </td>
+                            <td>
+                              <span
+                                class="badge bg-info duration-badge"
+                                data-duration="{{ row.duration_minutes if row.duration_minutes else 0 }}"
+                              >
+                                <i class="fas fa-hourglass-half me-1"></i>
+                                {% if row.duration_minutes %} {% if
+                                row.duration_minutes >= 60 %} {{
+                                (row.duration_minutes // 60) }}h {{
+                                (row.duration_minutes % 60) }}p {% else %} {{
+                                row.duration_minutes }} phút {% endif %} {% else
+                                %} 0 phút {% endif %}
+                              </span>
+                            </td>
+                            <td>
+                              <span
+                                class="badge {% if row.status == 'Đang có mặt' %}bg-success{% elif row.status == 'Đã rời' %}bg-secondary{% else %}bg-warning{% endif %} status-badge"
+                              >
+                                {% if row.status == 'Đang có mặt' %}
+                                <i class="fas fa-user-check me-1"></i>
+                                {% elif row.status == 'Đã rời' %}
+                                <i class="fas fa-sign-out-alt me-1"></i>
+                                {% else %}
+                                <i class="fas fa-user-clock me-1"></i>
+                                {% endif %} {{ row.status }}
+                              </span>
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                class="btn btn-sm btn-outline-primary js-view-details"
+                                data-student-name="{{ (row.full_name if row.full_name else 'N/A')|e }}"
+                                title="Xem chi tiết"
+                              >
+                                <i class="fas fa-eye"></i>
+                              </button>
+                            </td>
+                          </tr>
+                          {% endfor %}
+                        </tbody>
+                      </table>
+                    </div>
+                    {% else %}
+                    <div class="text-center py-5">
+                      <i class="fas fa-user-times fa-3x text-muted mb-3"></i>
+                      <h5 class="text-muted">
+                        Chưa có sinh viên nào điểm danh
+                      </h5>
+                      <p class="text-muted">
+                        Hệ thống sẽ tự động nhận diện và điểm danh khi có sinh
+                        viên xuất hiện trước camera.
+                      </p>
+                    </div>
+                    {% endif %}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-12">
-              <div
-                class="camera-status d-flex align-items-center justify-content-center"
-              >
-                <span class="status-indicator me-2"></span>
-                <span id="camera-status-text">Đang kiểm tra...</span>
-              </div>
-            </div>
-          </div>
-          <div id="reload-result" class="mt-2 text-center"></div>
-        </div>
-      </div>
-    </div>
 
-    <!-- Right Column - Attendance List -->
-    <div class="col-lg-6 col-md-12 mb-4">
-      <div class="card h-100">
-        <div class="card-header bg-success text-white">
-          <h5 class="card-title mb-0">
-            <i class="fas fa-list-check me-2"></i>Danh sách điểm danh hôm nay
-            <span class="badge bg-light text-dark ms-2" id="attendance-count"
-              >{{ attendance|length if attendance else 0 }}</span
-            >
-          </h5>
-        </div>
-        <div class="card-body p-0">
-          {% if attendance and attendance|length > 0 %}
-          <div
-            class="table-responsive"
-            style="max-height: 500px; overflow-y: auto"
-          >
-            <table class="table table-hover mb-0">
-              <thead class="table-light sticky-top">
-                <tr>
-                  <th width="5%">#</th>
-                  <th width="30%">Họ tên</th>
-                  <th width="25%">Giờ vào</th>
-                  <th width="20%">Thời gian có mặt</th>
-                  <th width="15%">Trạng thái</th>
-                  <th width="5%">Hành động</th>
-                </tr>
-              </thead>
-              <tbody id="attendance-table-body">
-                {% for row in attendance %}
-                <tr data-student-id="{{ row.student_id }}">
-                  <td>{{ loop.index }}</td>
-                  <td>
-                    <div class="d-flex align-items-center">
-                      <div
-                        class="avatar-sm bg-primary text-white rounded-circle d-flex align-items-center justify-content-center me-2"
-                      >
-                        {{ row.full_name[0].upper() if row.full_name else 'N' }}
+            <!-- Check-in / Check-out summary -->
+            <div class="row mb-4">
+              <div class="col-md-6 mb-3">
+                <div class="card h-100">
+                  <div
+                    class="card-header bg-light d-flex justify-content-between align-items-center"
+                  >
+                    <h6 class="mb-0">
+                      <i class="fas fa-door-open me-2 text-success"></i>Đã
+                      check-in
+                    </h6>
+                    <span class="badge bg-success" id="checked-in-count"
+                      >{{ checked_in|length if checked_in else 0 }}</span
+                    >
+                  </div>
+                  <div class="list-group list-group-flush" id="checked-in-list">
+                    {% if checked_in and checked_in|length > 0 %} {% for row in
+                    checked_in %}
+                    <div class="list-group-item">
+                      <div class="fw-bold">
+                        {{ row.full_name or row.student_name or 'Không rõ' }}
                       </div>
+                      <small class="text-muted"
+                        >Vào: {{ row.timestamp[11:19] if row.timestamp else
+                        'N/A' }}</small
+                      >
+                    </div>
+                    {% endfor %} {% else %}
+                    <div class="list-group-item text-center text-muted">
+                      Chưa có sinh viên nào check-in
+                    </div>
+                    {% endif %}
+                  </div>
+                  <div class="card-footer text-muted small">
+                    * Điểm danh và check-out chỉ được xác nhận qua nhận diện
+                    khuôn mặt của sinh viên
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-6 mb-3">
+                <div class="card h-100">
+                  <div
+                    class="card-header bg-light d-flex justify-content-between align-items-center"
+                  >
+                    <h6 class="mb-0">
+                      <i class="fas fa-door-closed me-2 text-secondary"></i>Đã
+                      ra về
+                    </h6>
+                    <span class="badge bg-secondary" id="checked-out-count"
+                      >{{ checked_out|length if checked_out else 0 }}</span
+                    >
+                  </div>
+                  <div
+                    class="list-group list-group-flush"
+                    id="checked-out-list"
+                  >
+                    {% if checked_out and checked_out|length > 0 %} {% for row
+                    in checked_out %}
+                    <div
+                      class="list-group-item d-flex justify-content-between align-items-center"
+                    >
                       <div>
                         <div class="fw-bold">
-                          {{ row.full_name if row.full_name else 'Không có tên'
-                          }}
+                          {{ row.full_name or row.student_name or 'Không rõ' }}
                         </div>
                         <small class="text-muted"
-                          >ID: {{ row.student_id if row.student_id else 'N/A'
-                          }}</small
+                          >Ra: {{ row.checkout_time[11:19] if row.checkout_time
+                          else 'N/A' }}</small
                         >
                       </div>
+                      <span class="badge bg-secondary">Đã checkout</span>
                     </div>
-                  </td>
-                  <td>
-                    <div>
-                      <i class="fas fa-clock me-1"></i>
-                      {{ row.timestamp[11:19] if row.timestamp else 'N/A' }}
+                    {% endfor %} {% else %}
+                    <div class="list-group-item text-center text-muted">
+                      Chưa có sinh viên nào checkout
                     </div>
-                    <small class="text-muted">
-                      {% if row.checkout_time %}
-                      <i class="fas fa-sign-out-alt me-1"></i>Ra: {{
-                      row.checkout_time[11:19] }} {% endif %}
-                    </small>
-                  </td>
-                  <td>
-                    <span
-                      class="badge bg-info duration-badge"
-                      data-duration="{{ row.duration_minutes if row.duration_minutes else 0 }}"
-                    >
-                      <i class="fas fa-hourglass-half me-1"></i>
-                      {% if row.duration_minutes %} {% if row.duration_minutes
-                      >= 60 %} {{ (row.duration_minutes // 60) }}h {{
-                      (row.duration_minutes % 60) }}p {% else %} {{
-                      row.duration_minutes }} phút {% endif %} {% else %} 0 phút
-                      {% endif %}
-                    </span>
-                  </td>
-                  <td>
-                    <span
-                      class="badge {% if row.status == 'Đang có mặt' %}bg-success{% elif row.status == 'Đã rời' %}bg-secondary{% else %}bg-warning{% endif %} status-badge"
-                    >
-                      {% if row.status == 'Đang có mặt' %}
-                      <i class="fas fa-user-check me-1"></i>
-                      {% elif row.status == 'Đã rời' %}
-                      <i class="fas fa-sign-out-alt me-1"></i>
-                      {% else %}
-                      <i class="fas fa-user-clock me-1"></i>
-                      {% endif %} {{ row.status }}
-                    </span>
-                  </td>
-                  <td>
-                    <button
-                      class="btn btn-sm btn-outline-primary"
-                      onclick="viewDetails('{{ row.full_name if row.full_name else 'N/A' }}')"
-                      title="Xem chi tiết"
-                    >
-                      <i class="fas fa-eye"></i>
-                    </button>
-                  </td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-          {% else %}
-          <div class="text-center py-5">
-            <i class="fas fa-user-times fa-3x text-muted mb-3"></i>
-            <h5 class="text-muted">Chưa có sinh viên nào điểm danh</h5>
-            <p class="text-muted">
-              Hệ thống sẽ tự động nhận diện và điểm danh khi có sinh viên xuất
-              hiện trước camera.
-            </p>
-          </div>
-          {% endif %}
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Statistics Cards -->
-  <div class="row mt-4">
-    <div class="col-md-3 col-sm-6 mb-3">
-      <div class="card bg-primary text-white">
-        <div class="card-body">
-          <div class="d-flex justify-content-between">
-            <div>
-              <h6 class="card-title">Tổng sinh viên</h6>
-              <h3 class="mb-0" id="total-students">0</h3>
-            </div>
-            <div class="align-self-center">
-              <i class="fas fa-users fa-2x opacity-75"></i>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-3 col-sm-6 mb-3">
-      <div class="card bg-success text-white">
-        <div class="card-body">
-          <div class="d-flex justify-content-between">
-            <div>
-              <h6 class="card-title">Đã điểm danh</h6>
-              <h3 class="mb-0" id="attended-students">
-                {{ attendance|length if attendance else 0 }}
-              </h3>
-            </div>
-            <div class="align-self-center">
-              <i class="fas fa-check-circle fa-2x opacity-75"></i>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-3 col-sm-6 mb-3">
-      <div class="card bg-warning text-white">
-        <div class="card-body">
-          <div class="d-flex justify-content-between">
-            <div>
-              <h6 class="card-title">Tỷ lệ điểm danh</h6>
-              <h3 class="mb-0" id="attendance-rate">0%</h3>
-            </div>
-            <div class="align-self-center">
-              <i class="fas fa-percentage fa-2x opacity-75"></i>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-3 col-sm-6 mb-3">
-      <div class="card bg-info text-white">
-        <div class="card-body">
-          <div class="d-flex justify-content-between">
-            <div>
-              <h6 class="card-title">Đang có mặt</h6>
-              <h3 class="mb-0" id="active-presence-count">0</h3>
-            </div>
-            <div class="align-self-center">
-              <i class="fas fa-user-check fa-2x opacity-75"></i>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-3 col-sm-6 mb-3">
-      <div class="card bg-secondary text-white">
-        <div class="card-body">
-          <div class="d-flex justify-content-between">
-            <div>
-              <h6 class="card-title">Thời gian TB</h6>
-              <h3 class="mb-0" id="avg-duration">0p</h3>
-            </div>
-            <div class="align-self-center">
-              <i class="fas fa-clock fa-2x opacity-75"></i>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Active Presence Section -->
-  <div class="row mb-4">
-    <div class="col-12">
-      <div class="card">
-        <div class="card-header bg-info text-white">
-          <h5 class="card-title mb-0">
-            <i class="fas fa-users-between-lines me-2"></i>Sinh viên đang có mặt
-            trong lớp
-            <span
-              class="badge bg-light text-dark ms-2"
-              id="active-presence-badge"
-              >0</span
-            >
-          </h5>
-        </div>
-        <div class="card-body">
-          <div id="active-presence-list" class="row">
-            <div class="col-12 text-center text-muted">
-              <i class="fas fa-user-clock fa-3x mb-3 opacity-50"></i>
-              <p>Chưa có sinh viên nào đang được phát hiện trong lớp</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- System Status Section (Hidden/Collapsed) -->
-  <div class="row mb-4" style="display: none">
-    <div class="col-md-3 col-sm-6 mb-3">
-      <div class="card bg-dark text-white">
-        <div class="card-body">
-          <div class="d-flex justify-content-between">
-            <div>
-              <h6 class="card-title">Trạng thái hệ thống</h6>
-              <h6 class="mb-0" id="system-status">
-                <i class="fas fa-circle text-success me-1"></i>Hoạt động
-              </h6>
-            </div>
-            <div class="align-self-center">
-              <i class="fas fa-server fa-2x opacity-75"></i>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Quick Register Modal -->
-<div
-  class="modal fade"
-  id="quickRegisterModal"
-  tabindex="-1"
-  aria-labelledby="quickRegisterModalLabel"
-  aria-hidden="true"
->
-  <div class="modal-dialog modal-lg">
-    <div class="modal-content">
-      <div class="modal-header bg-primary text-white">
-        <h5 class="modal-title" id="quickRegisterModalLabel">
-          <i class="fas fa-user-plus me-2"></i>Đăng ký khuôn mặt nhanh
-        </h5>
-        <button
-          type="button"
-          class="btn-close btn-close-white"
-          data-bs-dismiss="modal"
-          aria-label="Close"
-        ></button>
-      </div>
-      <div class="modal-body">
-        <form id="quickRegisterForm">
-          <div class="row">
-            <div class="col-md-6">
-              <div class="mb-3">
-                <label for="reg-student-id" class="form-label"
-                  >Mã sinh viên <span class="text-danger">*</span></label
-                >
-                <input
-                  type="text"
-                  class="form-control"
-                  id="reg-student-id"
-                  name="student_id"
-                  required
-                  placeholder="Ví dụ: SV001"
-                />
-              </div>
-              <div class="mb-3">
-                <label for="reg-full-name" class="form-label"
-                  >Họ và tên <span class="text-danger">*</span></label
-                >
-                <input
-                  type="text"
-                  class="form-control"
-                  id="reg-full-name"
-                  name="full_name"
-                  required
-                  placeholder="Ví dụ: Nguyễn Văn A"
-                />
-              </div>
-              <div class="mb-3">
-                <label for="reg-class-name" class="form-label">Lớp</label>
-                <input
-                  type="text"
-                  class="form-control"
-                  id="reg-class-name"
-                  name="class_name"
-                  placeholder="Ví dụ: CNTT K15"
-                />
-              </div>
-            </div>
-            <div class="col-md-6">
-              <div class="mb-3">
-                <label class="form-label"
-                  >Ảnh khuôn mặt <span class="text-danger">*</span></label
-                >
-                <div class="text-center">
-                  <video
-                    id="webcam-preview"
-                    class="border rounded mb-2"
-                    width="100%"
-                    height="240"
-                    autoplay
-                    style="
-                      display: none;
-                      max-width: 320px;
-                      transform: scaleX(-1);
-                    "
-                  ></video>
-                  <canvas
-                    id="capture-canvas"
-                    class="border rounded mb-2"
-                    width="320"
-                    height="240"
-                    style="display: none"
-                  ></canvas>
-                  <img
-                    id="captured-image"
-                    class="border rounded mb-2"
-                    width="320"
-                    height="240"
-                    style="display: none; transform: scaleX(-1)"
-                    alt="Captured face"
-                  />
-                  <div
-                    id="camera-placeholder"
-                    class="border rounded d-flex align-items-center justify-content-center bg-light"
-                    style="width: 320px; height: 240px; margin: 0 auto"
-                  >
-                    <i class="fas fa-camera fa-3x text-muted"></i>
+                    {% endif %}
                   </div>
                 </div>
-                <div class="d-grid gap-2 mt-2">
-                  <button
-                    type="button"
-                    class="btn btn-outline-primary"
-                    id="start-webcam-btn"
-                  >
-                    <i class="fas fa-video me-1"></i>Bật Camera
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-success"
-                    id="capture-btn"
-                    style="display: none"
-                  >
-                    <i class="fas fa-camera me-1"></i>Chụp ảnh
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-warning"
-                    id="retake-btn"
-                    style="display: none"
-                  >
-                    <i class="fas fa-redo me-1"></i>Chụp lại
-                  </button>
-                  <div class="text-center">
-                    <small class="text-muted">hoặc</small>
+              </div>
+            </div>
+
+            <!-- Statistics Cards -->
+            <div class="row mt-4">
+              <div class="col-md-3 col-sm-6 mb-3">
+                <div class="card bg-primary text-white">
+                  <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                      <div>
+                        <h6 class="card-title">Tổng sinh viên</h6>
+                        <h3 class="mb-0" id="total-students">0</h3>
+                      </div>
+                      <div class="align-self-center">
+                        <i class="fas fa-users fa-2x opacity-75"></i>
+                      </div>
+                    </div>
                   </div>
-                  <input
-                    type="file"
-                    class="form-control"
-                    id="reg-face-image"
-                    name="face_image"
-                    accept="image/*"
-                  />
+                </div>
+              </div>
+              <div class="col-md-3 col-sm-6 mb-3">
+                <div class="card bg-success text-white">
+                  <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                      <div>
+                        <h6 class="card-title">Đã điểm danh</h6>
+                        <h3 class="mb-0" id="attended-students">
+                          {{ attendance|length if attendance else 0 }}
+                        </h3>
+                      </div>
+                      <div class="align-self-center">
+                        <i class="fas fa-check-circle fa-2x opacity-75"></i>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-3 col-sm-6 mb-3">
+                <div class="card bg-warning text-white">
+                  <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                      <div>
+                        <h6 class="card-title">Tỷ lệ điểm danh</h6>
+                        <h3 class="mb-0" id="attendance-rate">0%</h3>
+                      </div>
+                      <div class="align-self-center">
+                        <i class="fas fa-percentage fa-2x opacity-75"></i>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-3 col-sm-6 mb-3">
+                <div class="card bg-info text-white">
+                  <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                      <div>
+                        <h6 class="card-title">Đang có mặt</h6>
+                        <h3 class="mb-0" id="active-presence-count">0</h3>
+                      </div>
+                      <div class="align-self-center">
+                        <i class="fas fa-user-check fa-2x opacity-75"></i>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-3 col-sm-6 mb-3">
+                <div class="card bg-secondary text-white">
+                  <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                      <div>
+                        <h6 class="card-title">Thời gian TB</h6>
+                        <h3 class="mb-0" id="avg-duration">0p</h3>
+                      </div>
+                      <div class="align-self-center">
+                        <i class="fas fa-clock fa-2x opacity-75"></i>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Active Presence Section -->
+            <div class="row mb-4">
+              <div class="col-12">
+                <div class="card">
+                  <div class="card-header bg-info text-white">
+                    <h5 class="card-title mb-0">
+                      <i class="fas fa-users-between-lines me-2"></i>Sinh viên
+                      đang có mặt trong lớp
+                      <span
+                        class="badge bg-light text-dark ms-2"
+                        id="active-presence-badge"
+                        >0</span
+                      >
+                    </h5>
+                  </div>
+                  <div class="card-body">
+                    <div id="active-presence-list" class="row">
+                      <div class="col-12 text-center text-muted">
+                        <i class="fas fa-user-clock fa-3x mb-3 opacity-50"></i>
+                        <p>
+                          Chưa có sinh viên nào đang được phát hiện trong lớp
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- System Status Section (Hidden/Collapsed) -->
+            <div class="row mb-4 hidden-initial">
+              <div class="col-md-3 col-sm-6 mb-3">
+                <div class="card bg-dark text-white">
+                  <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                      <div>
+                        <h6 class="card-title">Trạng thái hệ thống</h6>
+                        <h6 class="mb-0" id="system-status">
+                          <i class="fas fa-circle text-success me-1"></i>Hoạt
+                          động
+                        </h6>
+                      </div>
+                      <div class="align-self-center">
+                        <i class="fas fa-server fa-2x opacity-75"></i>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Register Modal -->
+          <div
+            class="modal fade"
+            id="quickRegisterModal"
+            tabindex="-1"
+            aria-labelledby="quickRegisterModalLabel"
+            aria-hidden="true"
+          >
+            <div class="modal-dialog modal-lg">
+              <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                  <h5 class="modal-title" id="quickRegisterModalLabel">
+                    <i class="fas fa-user-plus me-2"></i>Đăng ký khuôn mặt nhanh
+                  </h5>
+                  <button
+                    type="button"
+                    class="btn-close btn-close-white"
+                    data-bs-dismiss="modal"
+                    aria-label="Close"
+                  ></button>
+                </div>
+                <div class="modal-body">
+                  <form id="quickRegisterForm">
+                    <div class="row">
+                      <div class="col-md-6">
+                        <div class="mb-3">
+                          <label for="reg-student-id" class="form-label"
+                            >Mã sinh viên
+                            <span class="text-danger">*</span></label
+                          >
+                          <input
+                            type="text"
+                            class="form-control"
+                            id="reg-student-id"
+                            name="student_id"
+                            required
+                            placeholder="Ví dụ: SV001"
+                          />
+                        </div>
+                        <div class="mb-3">
+                          <label for="reg-full-name" class="form-label"
+                            >Họ và tên <span class="text-danger">*</span></label
+                          >
+                          <input
+                            type="text"
+                            class="form-control"
+                            id="reg-full-name"
+                            name="full_name"
+                            required
+                            placeholder="Ví dụ: Nguyễn Văn A"
+                          />
+                        </div>
+                        <div class="mb-3">
+                          <label for="reg-class-name" class="form-label"
+                            >Lớp</label
+                          >
+                          <input
+                            type="text"
+                            class="form-control"
+                            id="reg-class-name"
+                            name="class_name"
+                            placeholder="Ví dụ: CNTT K15"
+                          />
+                        </div>
+                      </div>
+                      <div class="col-md-6">
+                        <div class="mb-3">
+                          <label class="form-label"
+                            >Ảnh khuôn mặt
+                            <span class="text-danger">*</span></label
+                          >
+                          <div class="text-center">
+                            <video
+                              id="webcam-preview"
+                              class="border rounded mb-2"
+                              width="100%"
+                              height="240"
+                              autoplay
+                            ></video>
+                            <div
+                              id="camera-placeholder"
+                              class="border rounded d-flex align-items-center justify-content-center bg-light camera-placeholder-box"
+                            >
+                              <i class="fas fa-camera fa-3x text-muted"></i>
+                            </div>
+                          </div>
+                          <div class="d-grid gap-2 mt-2">
+                            <button
+                              type="button"
+                              class="btn btn-outline-primary"
+                              id="start-webcam-btn"
+                            >
+                              <i class="fas fa-video me-1"></i>Bật Camera
+                            </button>
+                            <button
+                              type="button"
+                              class="btn btn-success hidden-initial"
+                              id="capture-btn"
+                            >
+                              <i class="fas fa-camera me-1"></i>Chụp ảnh
+                            </button>
+                            <button
+                              type="button"
+                              class="btn btn-warning hidden-initial"
+                              id="retake-btn"
+                            >
+                              <i class="fas fa-redo me-1"></i>Chụp lại
+                            </button>
+                            <div class="text-center">
+                              <small class="text-muted">hoặc</small>
+                            </div>
+                            <input
+                              type="file"
+                              class="form-control"
+                              id="reg-face-image"
+                              name="face_image"
+                              accept="image/*"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div id="register-result" class="mt-3"></div>
+                  </form>
+                </div>
+                <div class="modal-footer">
+                  <button
+                    type="button"
+                    class="btn btn-secondary"
+                    data-bs-dismiss="modal"
+                  >
+                    <i class="fas fa-times me-1"></i>Hủy
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-primary"
+                    id="submit-register-btn"
+                  >
+                    <i class="fas fa-save me-1"></i>Đăng ký
+                  </button>
                 </div>
               </div>
             </div>
           </div>
-          <div id="register-result" class="mt-3"></div>
-        </form>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-          <i class="fas fa-times me-1"></i>Hủy
-        </button>
-        <button type="button" class="btn btn-primary" id="submit-register-btn">
-          <i class="fas fa-save me-1"></i>Đăng ký
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
-{% endblock %} {% block extra_js %}
-<script>
-  // Wait for DOM to be ready
-  document.addEventListener("DOMContentLoaded", () => {
-    // Reload faces functionality
-    const reloadBtn = document.getElementById("reload-faces");
-    if (reloadBtn) {
-      reloadBtn.addEventListener("click", async () => {
-        const btn = document.getElementById("reload-faces");
-        const result = document.getElementById("reload-result");
-        const icon = btn.querySelector("i");
+          {% endblock %} {% block extra_js %}
+          <script>
+            // Wait for DOM to be ready
+            document.addEventListener("DOMContentLoaded", () => {
+              // Reload faces functionality
+              const reloadBtn = document.getElementById("reload-faces");
+              if (reloadBtn) {
+                reloadBtn.addEventListener("click", async () => {
+                  const btn = document.getElementById("reload-faces");
+                  const result = document.getElementById("reload-result");
+                  const icon = btn.querySelector("i");
 
-        btn.disabled = true;
-        icon.className = "fas fa-spinner fa-spin me-1";
-        result.innerHTML =
-          '<div class="alert alert-info mb-0"><i class="fas fa-spinner fa-spin me-1"></i>Đang cập nhật...</div>';
+                  btn.disabled = true;
+                  icon.className = "fas fa-spinner fa-spin me-1";
+                  result.innerHTML =
+                    '<div class="alert alert-info mb-0"><i class="fas fa-spinner fa-spin me-1"></i>Đang cập nhật...</div>';
 
-        try {
-          const res = await fetch("/update_faces", { method: "POST" });
-          const text = await res.text();
-          if (res.ok) {
-            result.innerHTML = `<div class="alert alert-success mb-0"><i class="fas fa-check me-1"></i>${text}</div>`;
-            setTimeout(() => location.reload(), 1500);
-          } else {
-            result.innerHTML = `<div class="alert alert-danger mb-0"><i class="fas fa-exclamation-triangle me-1"></i>Lỗi: ${text}</div>`;
-          }
-        } catch (err) {
-          result.innerHTML = `<div class="alert alert-danger mb-0"><i class="fas fa-exclamation-triangle me-1"></i>Lỗi: ${err.message}</div>`;
-        } finally {
-          btn.disabled = false;
-          icon.className = "fas fa-sync-alt me-1";
-        }
-      });
-    }
-
-    // Refresh attendance
-    const refreshBtn = document.getElementById("refresh-attendance");
-    if (refreshBtn) {
-      refreshBtn.addEventListener("click", () => {
-        location.reload();
-      });
-    }
-
-    // View details function
-    window.viewDetails = function (name) {
-      alert(`Chi tiết điểm danh của: ${name}`);
-    };
-
-    // Camera toggle switch functionality
-    const toggleSwitch = document.getElementById("toggle-camera");
-    const switchLabel = document.getElementById("camera-switch-label");
-    const statusText = document.getElementById("camera-status-text");
-
-    async function updateCameraStatus() {
-      try {
-        const response = await fetch("/api/camera/status");
-        const data = await response.json();
-        toggleSwitch.checked = data.enabled;
-        switchLabel.textContent = data.enabled ? "Bật" : "Tắt";
-        if (statusText) {
-          statusText.textContent = data.enabled
-            ? "Camera đang hoạt động"
-            : "Camera đã tắt";
-        }
-      } catch (error) {
-        console.error("Error checking camera status:", error);
-      }
-    }
-
-    if (toggleSwitch) {
-      toggleSwitch.addEventListener("change", async function () {
-        const isEnabled = this.checked;
-        switchLabel.textContent = isEnabled ? "Đang bật..." : "Đang tắt...";
-
-        try {
-          const response = await fetch("/api/camera/toggle", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-          });
-          const data = await response.json();
-
-          if (data.success) {
-            switchLabel.textContent = data.enabled ? "Bật" : "Tắt";
-            if (statusText) {
-              statusText.textContent = data.enabled
-                ? "Camera đang hoạt động"
-                : "Camera đã tắt";
-            }
-            if (data.enabled) {
-              setTimeout(() => location.reload(), 500);
-            }
-          }
-        } catch (error) {
-          console.error("Error toggling camera:", error);
-          this.checked = !isEnabled;
-          switchLabel.textContent = !isEnabled ? "Bật" : "Tắt";
-        }
-      });
-
-      // Initial status check
-      updateCameraStatus();
-      // Poll camera status every 10s instead of 5s to reduce requests
-      setInterval(updateCameraStatus, 10000);
-    }
-
-    // Quick Register Modal functionality
-    const quickRegisterBtn = document.getElementById("quick-register-btn");
-    const quickRegisterModal = new bootstrap.Modal(
-      document.getElementById("quickRegisterModal")
-    );
-    let webcamStream = null;
-    let capturedImageData = null;
-
-    if (quickRegisterBtn) {
-      quickRegisterBtn.addEventListener("click", async () => {
-        // Tắt camera chính trước khi mở modal
-        const toggleSwitch = document.getElementById("toggle-camera");
-        if (toggleSwitch && toggleSwitch.checked) {
-          try {
-            // Gọi API để tắt camera
-            const response = await fetch("/api/camera/toggle", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-            });
-            const data = await response.json();
-
-            if (data.success && !data.enabled) {
-              toggleSwitch.checked = false;
-              const switchLabel = document.getElementById(
-                "camera-switch-label"
-              );
-              if (switchLabel) switchLabel.textContent = "Tắt";
-
-              // Đợi 1 giây để camera giải phóng hoàn toàn
-              await new Promise((resolve) => setTimeout(resolve, 1000));
-              console.log("Camera chính đã tắt hoàn toàn");
-            }
-          } catch (error) {
-            console.error("Error turning off main camera:", error);
-          }
-        }
-
-        quickRegisterModal.show();
-        document.getElementById("quickRegisterForm").reset();
-        document.getElementById("register-result").innerHTML = "";
-        capturedImageData = null;
-        // Reset camera UI
-        document.getElementById("webcam-preview").style.display = "none";
-        document.getElementById("capture-canvas").style.display = "none";
-        document.getElementById("captured-image").style.display = "none";
-        document.getElementById("camera-placeholder").style.display = "flex";
-        document.getElementById("start-webcam-btn").style.display = "block";
-        document.getElementById("capture-btn").style.display = "none";
-        document.getElementById("retake-btn").style.display = "none";
-      });
-    }
-
-    // Webcam controls
-    const startWebcamBtn = document.getElementById("start-webcam-btn");
-    const captureBtn = document.getElementById("capture-btn");
-    const retakeBtn = document.getElementById("retake-btn");
-    const webcamPreview = document.getElementById("webcam-preview");
-    const captureCanvas = document.getElementById("capture-canvas");
-    const capturedImage = document.getElementById("captured-image");
-    const cameraPlaceholder = document.getElementById("camera-placeholder");
-
-    if (startWebcamBtn) {
-      startWebcamBtn.addEventListener("click", async () => {
-        try {
-          // Liệt kê tất cả các camera
-          const devices = await navigator.mediaDevices.enumerateDevices();
-          const videoDevices = devices.filter(
-            (device) => device.kind === "videoinput"
-          );
-
-          console.log("Available cameras:", videoDevices);
-
-          // Loại bỏ camera điện thoại/external
-          const laptopCameras = videoDevices.filter((device) => {
-            const label = device.label.toLowerCase();
-            // Loại trừ camera điện thoại/external
-            return (
-              !label.includes("phone") &&
-              !label.includes("mobile") &&
-              !label.includes("droidcam") &&
-              !label.includes("iriun") &&
-              !label.includes("ip camera") &&
-              !label.includes("usb")
-            );
-          });
-
-          console.log("Laptop cameras:", laptopCameras);
-
-          // Chọn camera laptop đầu tiên hoặc camera đầu tiên trong danh sách
-          let selectedCamera =
-            laptopCameras.length > 0 ? laptopCameras[0] : videoDevices[0];
-
-          console.log(
-            "Selected camera:",
-            selectedCamera ? selectedCamera.label : "None"
-          );
-
-          if (!selectedCamera) {
-            throw new Error("Không tìm thấy camera nào");
-          }
-
-          // Mở camera với deviceId cụ thể
-          const constraints = {
-            video: {
-              width: 320,
-              height: 240,
-              deviceId: { exact: selectedCamera.deviceId },
-            },
-          };
-
-          webcamStream = await navigator.mediaDevices.getUserMedia(constraints);
-          webcamPreview.srcObject = webcamStream;
-          webcamPreview.style.display = "block";
-          cameraPlaceholder.style.display = "none";
-          startWebcamBtn.style.display = "none";
-          captureBtn.style.display = "block";
-        } catch (error) {
-          console.error("Camera error:", error);
-          alert("Không thể truy cập camera laptop. Lỗi: " + error.message);
-        }
-      });
-    }
-
-    if (captureBtn) {
-      captureBtn.addEventListener("click", () => {
-        const context = captureCanvas.getContext("2d");
-        captureCanvas.width = 320;
-        captureCanvas.height = 240;
-
-        // Flip lại canvas để ảnh không bị đảo ngược (vì video đã flip bằng CSS)
-        context.save();
-        context.scale(-1, 1);
-        context.drawImage(webcamPreview, -320, 0, 320, 240);
-        context.restore();
-
-        capturedImageData = captureCanvas.toDataURL("image/jpeg", 0.8);
-        capturedImage.src = capturedImageData;
-
-        // Stop webcam
-        if (webcamStream) {
-          webcamStream.getTracks().forEach((track) => track.stop());
-          webcamStream = null;
-        }
-
-        // Update UI
-        webcamPreview.style.display = "none";
-        capturedImage.style.display = "block";
-        captureBtn.style.display = "none";
-        retakeBtn.style.display = "block";
-      });
-    }
-
-    if (retakeBtn) {
-      retakeBtn.addEventListener("click", () => {
-        capturedImageData = null;
-        capturedImage.style.display = "none";
-        cameraPlaceholder.style.display = "flex";
-        retakeBtn.style.display = "none";
-        startWebcamBtn.style.display = "block";
-      });
-    }
-
-    // Submit registration
-    const submitRegisterBtn = document.getElementById("submit-register-btn");
-    if (submitRegisterBtn) {
-      submitRegisterBtn.addEventListener("click", async () => {
-        const form = document.getElementById("quickRegisterForm");
-        const formData = new FormData(form);
-        const resultDiv = document.getElementById("register-result");
-
-        console.log("Submit clicked");
-        console.log(
-          "capturedImageData:",
-          capturedImageData ? "exists" : "null"
-        );
-
-        // Validate
-        if (!formData.get("student_id") || !formData.get("full_name")) {
-          resultDiv.innerHTML =
-            '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-1"></i>Vui lòng điền đầy đủ thông tin bắt buộc!</div>';
-          return;
-        }
-
-        // Check if has image (captured or uploaded)
-        if (capturedImageData) {
-          console.log("Using captured image data");
-          formData.append("image_data", capturedImageData);
-        } else {
-          const faceImageFile = formData.get("face_image");
-          console.log("face_image file:", faceImageFile);
-          console.log(
-            "face_image file.name:",
-            faceImageFile ? faceImageFile.name : "null"
-          );
-          if (!faceImageFile || !faceImageFile.name) {
-            console.log("No image provided - showing error");
-            resultDiv.innerHTML =
-              '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-1"></i>Vui lòng chụp ảnh hoặc upload ảnh khuôn mặt!</div>';
-            return;
-          }
-        }
-
-        console.log("Proceeding to submit...");
-        // Submit
-        submitRegisterBtn.disabled = true;
-        submitRegisterBtn.innerHTML =
-          '<i class="fas fa-spinner fa-spin me-1"></i>Đang đăng ký...';
-
-        try {
-          const response = await fetch("/api/quick-register", {
-            method: "POST",
-            body: formData,
-          });
-
-          const data = await response.json();
-
-          if (response.ok && data.success) {
-            resultDiv.innerHTML = `<div class="alert alert-success"><i class="fas fa-check me-1"></i>${data.message}</div>`;
-            setTimeout(() => {
-              quickRegisterModal.hide();
-              location.reload();
-            }, 1500);
-          } else {
-            resultDiv.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-1"></i>${
-              data.error || "Đăng ký thất bại"
-            }</div>`;
-          }
-        } catch (error) {
-          resultDiv.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-1"></i>Lỗi: ${error.message}</div>`;
-        } finally {
-          submitRegisterBtn.disabled = false;
-          submitRegisterBtn.innerHTML =
-            '<i class="fas fa-save me-1"></i>Đăng ký';
-        }
-      });
-    }
-
-    // Clean up webcam when modal closes
-    document
-      .getElementById("quickRegisterModal")
-      .addEventListener("hidden.bs.modal", async () => {
-        // Dừng webcam trong modal
-        if (webcamStream) {
-          webcamStream.getTracks().forEach((track) => track.stop());
-          webcamStream = null;
-          console.log("Webcam modal đã dừng");
-        }
-
-        // Đợi một chút để đảm bảo webcam đã giải phóng
-        await new Promise((resolve) => setTimeout(resolve, 500));
-
-        // Bật lại camera chính
-        const toggleSwitch = document.getElementById("toggle-camera");
-        if (toggleSwitch && !toggleSwitch.checked) {
-          try {
-            const response = await fetch("/api/camera/toggle", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-            });
-            const data = await response.json();
-
-            if (data.success && data.enabled) {
-              toggleSwitch.checked = true;
-              const switchLabel = document.getElementById(
-                "camera-switch-label"
-              );
-              if (switchLabel) switchLabel.textContent = "Bật";
-              console.log("Camera chính đã được bật lại");
-
-              // Reload trang để hiển thị camera
-              setTimeout(() => location.reload(), 500);
-            }
-          } catch (error) {
-            console.error("Error turning on main camera:", error);
-          }
-        }
-      });
-  });
-
-  // Cập nhật thời gian có mặt real-time
-  function updateAttendanceDuration() {
-    const durationBadges = document.querySelectorAll(".duration-badge");
-    durationBadges.forEach((badge) => {
-      const currentMinutes = parseInt(
-        badge.getAttribute("data-duration") || "0"
-      );
-      const newMinutes = currentMinutes + 1;
-      badge.setAttribute("data-duration", newMinutes);
-
-      // Format hiển thị
-      let displayText = "";
-      if (newMinutes >= 60) {
-        const hours = Math.floor(newMinutes / 60);
-        const mins = newMinutes % 60;
-        displayText = `${hours}h ${mins}p`;
-      } else {
-        displayText = `${newMinutes} phút`;
-      }
-
-      badge.innerHTML = `<i class="fas fa-hourglass-half me-1"></i>${displayText}`;
-    });
-  }
-
-  // Cập nhật trạng thái và danh sách điểm danh
-  async function refreshAttendanceList() {
-    try {
-      const response = await fetch("/api/attendance/today");
-      const data = await response.json();
-
-      if (data.success && data.data) {
-        const tbody = document.getElementById("attendance-table-body");
-        if (tbody) {
-          // Rebuild table
-          tbody.innerHTML = "";
-          data.data.forEach((row, index) => {
-            const tr = document.createElement("tr");
-            tr.setAttribute("data-student-id", row.student_id);
-
-            // Format duration
-            let durationText = "0 phút";
-            if (row.duration_minutes) {
-              if (row.duration_minutes >= 60) {
-                const hours = Math.floor(row.duration_minutes / 60);
-                const mins = row.duration_minutes % 60;
-                durationText = `${hours}h ${mins}p`;
-              } else {
-                durationText = `${row.duration_minutes} phút`;
+                  try {
+                    const res = await fetch("/update_faces", {
+                      method: "POST",
+                    });
+                    const text = await res.text();
+                    if (res.ok) {
+                      result.innerHTML = `<div class="alert alert-success mb-0"><i class="fas fa-check me-1"></i>${text}</div>`;
+                      setTimeout(() => location.reload(), 1500);
+                    } else {
+                      result.innerHTML = `<div class="alert alert-danger mb-0"><i class="fas fa-exclamation-triangle me-1"></i>Lỗi: ${text}</div>`;
+                    }
+                  } catch (err) {
+                    result.innerHTML = `<div class="alert alert-danger mb-0"><i class="fas fa-exclamation-triangle me-1"></i>Lỗi: ${err.message}</div>`;
+                  } finally {
+                    btn.disabled = false;
+                    icon.className = "fas fa-sync-alt me-1";
+                  }
+                });
               }
+
+              // Refresh attendance
+              const refreshBtn = document.getElementById("refresh-attendance");
+              if (refreshBtn) {
+                refreshBtn.addEventListener("click", () => {
+                  location.reload();
+                });
+              }
+
+              // View details function
+              window.viewDetails = function (name) {
+                alert(`Chi tiết điểm danh của: ${name}`);
+              };
+
+              // Delegate button clicks for detail actions only
+              document.addEventListener("click", (event) => {
+                const detailBtn = event.target.closest(".js-view-details");
+                if (detailBtn) {
+                  const studentName =
+                    detailBtn.getAttribute("data-student-name") ||
+                    detailBtn.dataset.studentName ||
+                    "N/A";
+                  window.viewDetails(studentName);
+                }
+              });
+
+              // Camera toggle switch functionality
+              const toggleSwitch = document.getElementById("toggle-camera");
+              const switchLabel = document.getElementById(
+                "camera-switch-label"
+              );
+              const statusText = document.getElementById("camera-status-text");
+
+              async function updateCameraStatus() {
+                try {
+                  const response = await fetch("/api/camera/status");
+                  const data = await response.json();
+                  toggleSwitch.checked = data.enabled;
+                  switchLabel.textContent = data.enabled ? "Bật" : "Tắt";
+                  if (statusText) {
+                    statusText.textContent = data.enabled
+                      ? "Camera đang hoạt động"
+                      : "Camera đã tắt";
+                  }
+                } catch (error) {
+                  console.error("Error checking camera status:", error);
+                }
+              }
+
+              if (toggleSwitch) {
+                toggleSwitch.addEventListener("change", async function () {
+                  const isEnabled = this.checked;
+                  switchLabel.textContent = isEnabled
+                    ? "Đang bật..."
+                    : "Đang tắt...";
+
+                  try {
+                    const response = await fetch("/api/camera/toggle", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                    });
+                    const data = await response.json();
+
+                    if (data.success) {
+                      switchLabel.textContent = data.enabled ? "Bật" : "Tắt";
+                      if (statusText) {
+                        statusText.textContent = data.enabled
+                          ? "Camera đang hoạt động"
+                          : "Camera đã tắt";
+                      }
+                      if (data.enabled) {
+                        setTimeout(() => location.reload(), 500);
+                      }
+                    }
+                  } catch (error) {
+                    console.error("Error toggling camera:", error);
+                    this.checked = !isEnabled;
+                    switchLabel.textContent = !isEnabled ? "Bật" : "Tắt";
+                  }
+                });
+
+                // Initial status check
+                updateCameraStatus();
+                // Poll camera status every 10s instead of 5s to reduce requests
+                setInterval(updateCameraStatus, 10000);
+              }
+
+              // Quick Register Modal functionality
+              const quickRegisterBtn =
+                document.getElementById("quick-register-btn");
+              const quickRegisterModal = new bootstrap.Modal(
+                document.getElementById("quickRegisterModal")
+              );
+              let webcamStream = null;
+              let capturedImageData = null;
+
+              if (quickRegisterBtn) {
+                quickRegisterBtn.addEventListener("click", async () => {
+                  // Tắt camera chính trước khi mở modal
+                  const toggleSwitch = document.getElementById("toggle-camera");
+                  if (toggleSwitch && toggleSwitch.checked) {
+                    try {
+                      // Gọi API để tắt camera
+                      const response = await fetch("/api/camera/toggle", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                      });
+                      const data = await response.json();
+
+                      if (data.success && !data.enabled) {
+                        toggleSwitch.checked = false;
+                        const switchLabel = document.getElementById(
+                          "camera-switch-label"
+                        );
+                        if (switchLabel) switchLabel.textContent = "Tắt";
+
+                        // Đợi 1 giây để camera giải phóng hoàn toàn
+                        await new Promise((resolve) =>
+                          setTimeout(resolve, 1000)
+                        );
+                        console.log("Camera chính đã tắt hoàn toàn");
+                      }
+                    } catch (error) {
+                      console.error("Error turning off main camera:", error);
+                    }
+                  }
+
+                  quickRegisterModal.show();
+                  document.getElementById("quickRegisterForm").reset();
+                  document.getElementById("register-result").innerHTML = "";
+                  capturedImageData = null;
+                  // Reset camera UI
+                  document.getElementById("webcam-preview").style.display =
+                    "none";
+                  document.getElementById("capture-canvas").style.display =
+                    "none";
+                  document.getElementById("captured-image").style.display =
+                    "none";
+                  document.getElementById("camera-placeholder").style.display =
+                    "flex";
+                  document.getElementById("start-webcam-btn").style.display =
+                    "block";
+                  document.getElementById("capture-btn").style.display = "none";
+                  document.getElementById("retake-btn").style.display = "none";
+                });
+              }
+
+              // Webcam controls
+              const startWebcamBtn =
+                document.getElementById("start-webcam-btn");
+              const captureBtn = document.getElementById("capture-btn");
+              const retakeBtn = document.getElementById("retake-btn");
+              const webcamPreview = document.getElementById("webcam-preview");
+              const captureCanvas = document.getElementById("capture-canvas");
+              const capturedImage = document.getElementById("captured-image");
+              const cameraPlaceholder =
+                document.getElementById("camera-placeholder");
+
+              if (startWebcamBtn) {
+                startWebcamBtn.addEventListener("click", async () => {
+                  try {
+                    // Liệt kê tất cả các camera
+                    const devices =
+                      await navigator.mediaDevices.enumerateDevices();
+                    const videoDevices = devices.filter(
+                      (device) => device.kind === "videoinput"
+                    );
+
+                    console.log("Available cameras:", videoDevices);
+
+                    // Loại bỏ camera điện thoại/external
+                    const laptopCameras = videoDevices.filter((device) => {
+                      const label = device.label.toLowerCase();
+                      // Loại trừ camera điện thoại/external
+                      return (
+                        !label.includes("phone") &&
+                        !label.includes("mobile") &&
+                        !label.includes("droidcam") &&
+                        !label.includes("iriun") &&
+                        !label.includes("ip camera") &&
+                        !label.includes("usb")
+                      );
+                    });
+
+                    console.log("Laptop cameras:", laptopCameras);
+
+                    // Chọn camera laptop đầu tiên hoặc camera đầu tiên trong danh sách
+                    let selectedCamera =
+                      laptopCameras.length > 0
+                        ? laptopCameras[0]
+                        : videoDevices[0];
+
+                    console.log(
+                      "Selected camera:",
+                      selectedCamera ? selectedCamera.label : "None"
+                    );
+
+                    if (!selectedCamera) {
+                      throw new Error("Không tìm thấy camera nào");
+                    }
+
+                    // Mở camera với deviceId cụ thể
+                    const constraints = {
+                      video: {
+                        width: 320,
+                        height: 240,
+                        deviceId: { exact: selectedCamera.deviceId },
+                      },
+                    };
+
+                    webcamStream = await navigator.mediaDevices.getUserMedia(
+                      constraints
+                    );
+                    webcamPreview.srcObject = webcamStream;
+                    webcamPreview.style.display = "block";
+                    cameraPlaceholder.style.display = "none";
+                    startWebcamBtn.style.display = "none";
+                    captureBtn.style.display = "block";
+                  } catch (error) {
+                    console.error("Camera error:", error);
+                    alert(
+                      "Không thể truy cập camera laptop. Lỗi: " + error.message
+                    );
+                  }
+                });
+              }
+
+              if (captureBtn) {
+                captureBtn.addEventListener("click", () => {
+                  const context = captureCanvas.getContext("2d");
+                  captureCanvas.width = 320;
+                  captureCanvas.height = 240;
+
+                  // Flip lại canvas để ảnh không bị đảo ngược (vì video đã flip bằng CSS)
+                  context.save();
+                  context.scale(-1, 1);
+                  context.drawImage(webcamPreview, -320, 0, 320, 240);
+                  context.restore();
+
+                  capturedImageData = captureCanvas.toDataURL(
+                    "image/jpeg",
+                    0.8
+                  );
+                  capturedImage.src = capturedImageData;
+
+                  // Stop webcam
+                  if (webcamStream) {
+                    webcamStream.getTracks().forEach((track) => track.stop());
+                    webcamStream = null;
+                  }
+
+                  // Update UI
+                  webcamPreview.style.display = "none";
+                  capturedImage.style.display = "block";
+                  captureBtn.style.display = "none";
+                  retakeBtn.style.display = "block";
+                });
+              }
+
+              if (retakeBtn) {
+                retakeBtn.addEventListener("click", () => {
+                  capturedImageData = null;
+                  capturedImage.style.display = "none";
+                  cameraPlaceholder.style.display = "flex";
+                  retakeBtn.style.display = "none";
+                  startWebcamBtn.style.display = "block";
+                });
+              }
+
+              // Submit registration
+              const submitRegisterBtn = document.getElementById(
+                "submit-register-btn"
+              );
+              if (submitRegisterBtn) {
+                submitRegisterBtn.addEventListener("click", async () => {
+                  const form = document.getElementById("quickRegisterForm");
+                  const formData = new FormData(form);
+                  const resultDiv = document.getElementById("register-result");
+
+                  console.log("Submit clicked");
+                  console.log(
+                    "capturedImageData:",
+                    capturedImageData ? "exists" : "null"
+                  );
+
+                  // Validate
+                  if (
+                    !formData.get("student_id") ||
+                    !formData.get("full_name")
+                  ) {
+                    resultDiv.innerHTML =
+                      '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-1"></i>Vui lòng điền đầy đủ thông tin bắt buộc!</div>';
+                    return;
+                  }
+
+                  // Check if has image (captured or uploaded)
+                  if (capturedImageData) {
+                    console.log("Using captured image data");
+                    formData.append("image_data", capturedImageData);
+                  } else {
+                    const faceImageFile = formData.get("face_image");
+                    console.log("face_image file:", faceImageFile);
+                    console.log(
+                      "face_image file.name:",
+                      faceImageFile ? faceImageFile.name : "null"
+                    );
+                    if (!faceImageFile || !faceImageFile.name) {
+                      console.log("No image provided - showing error");
+                      resultDiv.innerHTML =
+                        '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-1"></i>Vui lòng chụp ảnh hoặc upload ảnh khuôn mặt!</div>';
+                      return;
+                    }
+                  }
+
+                  console.log("Proceeding to submit...");
+                  // Submit
+                  submitRegisterBtn.disabled = true;
+                  submitRegisterBtn.innerHTML =
+                    '<i class="fas fa-spinner fa-spin me-1"></i>Đang đăng ký...';
+
+                  try {
+                    const response = await fetch("/api/quick-register", {
+                      method: "POST",
+                      body: formData,
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok && data.success) {
+                      resultDiv.innerHTML = `<div class="alert alert-success"><i class="fas fa-check me-1"></i>${data.message}</div>`;
+                      setTimeout(() => {
+                        quickRegisterModal.hide();
+                        location.reload();
+                      }, 1500);
+                    } else {
+                      resultDiv.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-1"></i>${
+                        data.error || "Đăng ký thất bại"
+                      }</div>`;
+                    }
+                  } catch (error) {
+                    resultDiv.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-1"></i>Lỗi: ${error.message}</div>`;
+                  } finally {
+                    submitRegisterBtn.disabled = false;
+                    submitRegisterBtn.innerHTML =
+                      '<i class="fas fa-save me-1"></i>Đăng ký';
+                  }
+                });
+              }
+
+              // Clean up webcam when modal closes
+              document
+                .getElementById("quickRegisterModal")
+                .addEventListener("hidden.bs.modal", async () => {
+                  // Dừng webcam trong modal
+                  if (webcamStream) {
+                    webcamStream.getTracks().forEach((track) => track.stop());
+                    webcamStream = null;
+                    console.log("Webcam modal đã dừng");
+                  }
+
+                  // Đợi một chút để đảm bảo webcam đã giải phóng
+                  await new Promise((resolve) => setTimeout(resolve, 500));
+
+                  // Bật lại camera chính
+                  const toggleSwitch = document.getElementById("toggle-camera");
+                  if (toggleSwitch && !toggleSwitch.checked) {
+                    try {
+                      const response = await fetch("/api/camera/toggle", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                      });
+                      const data = await response.json();
+
+                      if (data.success && data.enabled) {
+                        toggleSwitch.checked = true;
+                        const switchLabel = document.getElementById(
+                          "camera-switch-label"
+                        );
+                        if (switchLabel) switchLabel.textContent = "Bật";
+                        console.log("Camera chính đã được bật lại");
+
+                        // Reload trang để hiển thị camera
+                        setTimeout(() => location.reload(), 500);
+                      }
+                    } catch (error) {
+                      console.error("Error turning on main camera:", error);
+                    }
+                  }
+                });
+            });
+
+            // Cập nhật thời gian có mặt real-time
+            function updateAttendanceDuration() {
+              const durationBadges =
+                document.querySelectorAll(".duration-badge");
+              durationBadges.forEach((badge) => {
+                const currentMinutes = parseInt(
+                  badge.getAttribute("data-duration") || "0"
+                );
+                const newMinutes = currentMinutes + 1;
+                badge.setAttribute("data-duration", newMinutes);
+
+                // Format hiển thị
+                let displayText = "";
+                if (newMinutes >= 60) {
+                  const hours = Math.floor(newMinutes / 60);
+                  const mins = newMinutes % 60;
+                  displayText = `${hours}h ${mins}p`;
+                } else {
+                  displayText = `${newMinutes} phút`;
+                }
+
+                badge.innerHTML = `<i class="fas fa-hourglass-half me-1"></i>${displayText}`;
+              });
             }
 
-            // Status badge
-            let statusClass = "bg-warning";
-            let statusIcon = "fa-user-clock";
-            if (row.status === "Đang có mặt") {
-              statusClass = "bg-success";
-              statusIcon = "fa-user-check";
-            } else if (row.status === "Đã rời") {
-              statusClass = "bg-secondary";
-              statusIcon = "fa-sign-out-alt";
-            }
+            // Cập nhật trạng thái và danh sách điểm danh
+            async function refreshAttendanceList() {
+              try {
+                const response = await fetch("/api/attendance/today");
+                const data = await response.json();
 
-            tr.innerHTML = `
+                if (data.success && data.data) {
+                  const tbody = document.getElementById(
+                    "attendance-table-body"
+                  );
+                  if (tbody) {
+                    // Rebuild table
+                    tbody.innerHTML = "";
+                    data.data.forEach((row, index) => {
+                      const tr = document.createElement("tr");
+                      tr.setAttribute("data-student-id", row.student_id);
+
+                      // Format duration
+                      let durationText = "0 phút";
+                      if (row.duration_minutes) {
+                        if (row.duration_minutes >= 60) {
+                          const hours = Math.floor(row.duration_minutes / 60);
+                          const mins = row.duration_minutes % 60;
+                          durationText = `${hours}h ${mins}p`;
+                        } else {
+                          durationText = `${row.duration_minutes} phút`;
+                        }
+                      }
+
+                      // Status badge
+                      let statusClass = "bg-warning";
+                      let statusIcon = "fa-user-clock";
+                      if (row.status === "Đang có mặt") {
+                        statusClass = "bg-success";
+                        statusIcon = "fa-user-check";
+                      } else if (row.status === "Đã rời") {
+                        statusClass = "bg-secondary";
+                        statusIcon = "fa-sign-out-alt";
+                      }
+
+                      tr.innerHTML = `
               <td>${index + 1}</td>
               <td>
                 <div class="d-flex align-items-center">
@@ -965,105 +1068,119 @@ thống điểm danh thông minh{% endblock %} {% block content %}
                 </span>
               </td>
               <td>
-                <button class="btn btn-sm btn-outline-primary" onclick="viewDetails('${
-                  row.full_name || "N/A"
-                }')" title="Xem chi tiết">
+                <button type="button" class="btn btn-sm btn-outline-primary js-view-details" title="Xem chi tiết">
                   <i class="fas fa-eye"></i>
                 </button>
               </td>
             `;
-            tbody.appendChild(tr);
-          });
+                      tbody.appendChild(tr);
 
-          // Update count
-          const countBadge = document.getElementById("attendance-count");
-          if (countBadge) {
-            countBadge.textContent = data.data.length;
-          }
-        }
-      }
-    } catch (error) {
-      console.error("Error refreshing attendance list:", error);
-    }
-  }
+                      const viewBtn = tr.querySelector(".js-view-details");
+                      if (viewBtn) {
+                        viewBtn.dataset.studentName = row.full_name || "N/A";
+                      }
+                    });
 
-  // Cập nhật mỗi phút cho sinh viên chưa checkout
-  setInterval(() => {
-    const tbody = document.getElementById("attendance-table-body");
-    if (tbody) {
-      const rows = tbody.querySelectorAll("tr");
-      rows.forEach((row) => {
-        const statusBadge = row.querySelector(".status-badge");
-        const durationBadge = row.querySelector(".duration-badge");
+                    // Update count
+                    const countBadge =
+                      document.getElementById("attendance-count");
+                    if (countBadge) {
+                      countBadge.textContent = data.data.length;
+                    }
+                  }
+                }
+              } catch (error) {
+                console.error("Error refreshing attendance list:", error);
+              }
+            }
 
-        // Chỉ cập nhật cho sinh viên "Đang có mặt"
-        if (
-          statusBadge &&
-          statusBadge.textContent.includes("Đang có mặt") &&
-          durationBadge
-        ) {
-          const currentMinutes = parseInt(
-            durationBadge.getAttribute("data-duration") || "0"
-          );
-          const newMinutes = currentMinutes + 1;
-          durationBadge.setAttribute("data-duration", newMinutes);
+            // Cập nhật mỗi phút cho sinh viên chưa checkout
+            setInterval(() => {
+              const tbody = document.getElementById("attendance-table-body");
+              if (tbody) {
+                const rows = tbody.querySelectorAll("tr");
+                rows.forEach((row) => {
+                  const statusBadge = row.querySelector(".status-badge");
+                  const durationBadge = row.querySelector(".duration-badge");
 
-          let displayText = "";
-          if (newMinutes >= 60) {
-            const hours = Math.floor(newMinutes / 60);
-            const mins = newMinutes % 60;
-            displayText = `${hours}h ${mins}p`;
-          } else {
-            displayText = `${newMinutes} phút`;
-          }
+                  // Chỉ cập nhật cho sinh viên "Đang có mặt"
+                  if (
+                    statusBadge &&
+                    statusBadge.textContent.includes("Đang có mặt") &&
+                    durationBadge
+                  ) {
+                    const currentMinutes = parseInt(
+                      durationBadge.getAttribute("data-duration") || "0"
+                    );
+                    const newMinutes = currentMinutes + 1;
+                    durationBadge.setAttribute("data-duration", newMinutes);
 
-          durationBadge.innerHTML = `<i class="fas fa-hourglass-half me-1"></i>${displayText}`;
-        }
-      });
-    }
-  }, 60000); // Mỗi 60 giây (1 phút)
+                    let displayText = "";
+                    if (newMinutes >= 60) {
+                      const hours = Math.floor(newMinutes / 60);
+                      const mins = newMinutes % 60;
+                      displayText = `${hours}h ${mins}p`;
+                    } else {
+                      displayText = `${newMinutes} phút`;
+                    }
 
-  // Làm mới danh sách điểm danh mỗi 30 giây
-  setInterval(refreshAttendanceList, 30000);
+                    durationBadge.innerHTML = `<i class="fas fa-hourglass-half me-1"></i>${displayText}`;
+                  }
+                });
+              }
+            }, 60000); // Mỗi 60 giây (1 phút)
 
-  // Cập nhật danh sách sinh viên đang có mặt
-  async function updateActivePresence() {
-    try {
-      const response = await fetch("/api/presence/active");
-      const data = await response.json();
+            // Làm mới danh sách điểm danh mỗi 30 giây
+            setInterval(refreshAttendanceList, 30000);
 
-      if (data.success) {
-        const activeList = document.getElementById("active-presence-list");
-        const activeBadge = document.getElementById("active-presence-badge");
-        const activeCount = document.getElementById("active-presence-count");
+            // Cập nhật danh sách sinh viên đang có mặt
+            async function updateActivePresence() {
+              try {
+                const response = await fetch("/api/presence/active");
+                const data = await response.json();
 
-        if (activeBadge) activeBadge.textContent = data.count;
-        if (activeCount) activeCount.textContent = data.count;
+                if (data.success) {
+                  const activeList = document.getElementById(
+                    "active-presence-list"
+                  );
+                  const activeBadge = document.getElementById(
+                    "active-presence-badge"
+                  );
+                  const activeCount = document.getElementById(
+                    "active-presence-count"
+                  );
 
-        if (activeList) {
-          if (data.count === 0) {
-            activeList.innerHTML = `
+                  if (activeBadge) activeBadge.textContent = data.count;
+                  if (activeCount) activeCount.textContent = data.count;
+
+                  if (activeList) {
+                    if (data.count === 0) {
+                      activeList.innerHTML = `
               <div class="col-12 text-center text-muted">
                 <i class="fas fa-user-clock fa-3x mb-3 opacity-50"></i>
                 <p>Chưa có sinh viên nào đang được phát hiện trong lớp</p>
               </div>
             `;
-          } else {
-            let html = "";
-            data.data.forEach((student) => {
-              const isActive = student.seconds_since_seen < 30;
-              const statusClass = isActive ? "success" : "warning";
-              const statusIcon = isActive ? "fa-check-circle" : "fa-clock";
+                    } else {
+                      let html = "";
+                      data.data.forEach((student) => {
+                        const isActive = student.seconds_since_seen < 30;
+                        const statusClass = isActive ? "success" : "warning";
+                        const statusIcon = isActive
+                          ? "fa-check-circle"
+                          : "fa-clock";
 
-              // Format duration
-              let durationText = `${student.duration_minutes} phút`;
-              if (student.duration_minutes >= 60) {
-                const hours = Math.floor(student.duration_minutes / 60);
-                const mins = student.duration_minutes % 60;
-                durationText = `${hours}h ${mins}p`;
-              }
+                        // Format duration
+                        let durationText = `${student.duration_minutes} phút`;
+                        if (student.duration_minutes >= 60) {
+                          const hours = Math.floor(
+                            student.duration_minutes / 60
+                          );
+                          const mins = student.duration_minutes % 60;
+                          durationText = `${hours}h ${mins}p`;
+                        }
 
-              html += `
+                        html += `
                 <div class="col-md-4 col-sm-6 mb-3">
                   <div class="card border-${statusClass}">
                     <div class="card-body">
@@ -1099,55 +1216,157 @@ thống điểm danh thông minh{% endblock %} {% block content %}
                   </div>
                 </div>
               `;
+                      });
+                      activeList.innerHTML = html;
+                    }
+                  }
+                }
+              } catch (error) {
+                console.error("Error updating active presence:", error);
+              }
+            }
+
+            // Cập nhật thống kê
+            async function updateStatistics() {
+              try {
+                const response = await fetch("/api/statistics");
+                const data = await response.json();
+
+                const totalStudents = document.getElementById("total-students");
+                const attendedStudents =
+                  document.getElementById("attended-students");
+                const attendanceRate =
+                  document.getElementById("attendance-rate");
+                const avgDuration = document.getElementById("avg-duration");
+
+                if (totalStudents)
+                  totalStudents.textContent = data.total_students || 0;
+                if (attendedStudents)
+                  attendedStudents.textContent = data.attended_students || 0;
+                if (attendanceRate)
+                  attendanceRate.textContent = `${data.attendance_rate || 0}%`;
+
+                if (avgDuration) {
+                  const mins = data.avg_duration_minutes || 0;
+                  if (mins >= 60) {
+                    const hours = Math.floor(mins / 60);
+                    const minutes = mins % 60;
+                    avgDuration.textContent = `${hours}h ${minutes}p`;
+                  } else {
+                    avgDuration.textContent = `${mins}p`;
+                  }
+                }
+              } catch (error) {
+                console.error("Error updating statistics:", error);
+              }
+            }
+
+            // Cập nhật active presence mỗi 5 giây
+            setInterval(updateActivePresence, 5000);
+            // Cập nhật thống kê mỗi 10 giây
+            setInterval(updateStatistics, 10000);
+
+            // Gọi ngay lần đầu
+            updateActivePresence();
+            updateStatistics();
+
+            // ===== SERVER-SENT EVENTS (SSE) FOR REAL-TIME NOTIFICATIONS =====
+            let eventSource = null;
+
+            function initSSE() {
+              try {
+                eventSource = new EventSource("/api/events/stream");
+
+                eventSource.onopen = function () {
+                  console.log("SSE connection established");
+                };
+
+                eventSource.onmessage = function (event) {
+                  try {
+                    const data = JSON.parse(event.data);
+
+                    if (data.type === "attendance_marked") {
+                      // Hiển thị thông báo toast
+                      showAttendanceNotification(data.data);
+
+                      // Cập nhật danh sách điểm danh ngay lập tức
+                      refreshAttendanceList();
+
+                      // Cập nhật thống kê
+                      updateStatistics();
+                    }
+                  } catch (e) {
+                    console.error("Error parsing SSE data:", e);
+                  }
+                };
+
+                eventSource.onerror = function (error) {
+                  console.error("SSE error:", error);
+                  // Tự động reconnect sau 5 giây
+                  eventSource.close();
+                  setTimeout(initSSE, 5000);
+                };
+              } catch (error) {
+                console.error("Error initializing SSE:", error);
+              }
+            }
+
+            function showAttendanceNotification(data) {
+              // Tạo toast notification
+              const notificationHtml = `
+      <div class="toast align-items-center text-white bg-success border-0 show attendance-toast" role="alert" aria-live="assertive" aria-atomic="true" id="attendance-toast-${Date.now()}">
+        <div class="d-flex">
+          <div class="toast-body">
+            <i class="fas fa-check-circle me-2"></i>
+            <strong>${data.student_name}</strong> đã điểm danh thành công!
+            ${
+              data.confidence
+                ? `<br><small class="opacity-75">Độ tin cậy: ${(
+                    data.confidence * 100
+                  ).toFixed(1)}%</small>`
+                : ""
+            }
+          </div>
+          <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+      </div>
+    `;
+
+              // Thêm vào body
+              const toastDiv = document.createElement("div");
+              toastDiv.innerHTML = notificationHtml;
+              document.body.appendChild(toastDiv);
+
+              // Tự động xóa sau 5 giây
+              setTimeout(() => {
+                toastDiv.remove();
+              }, 5000);
+
+              // Phát âm thanh thông báo (nếu có)
+              try {
+                const audio = new Audio(
+                  "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZSA0PVqzn77RiHAU7k9r0yoU0Bxl0w/Ddkj8JEly56+ijUxELR6Hh8bllHgU3jtHz0IU1Bx5ywO/mnEkOD1ap5++zYhwGO5HY88yENQcZccDw3ZM/ChNdvOvpplQRC0ih4fG5ZR4FNo/R89GENQcfccDv5pxJDg9WqufvtGIcBjuR2PTMhTYHGXHA8N2TPwoTXbzr6aZUEQtIoeHxuWUeBTaP0fPRhDUHH3HA7+acSQ4PVqrn77RiHAY7kdjzzIU2Bxpvw+/dnEkPD1ap5+60YhwGO5HY9MyFNgcaccDw3pJAChNdu+vqplMRC0mh4PG6Zh4GNpDR89GEOAcfccHu5p1JDw9WqufvtWIcBTqR2PPMhDYHGXHA8N2UPwsSXrzr6aVTEAtIoeHwuWYeBTaP0fPShDYHHnHA7+acSg8PVazn77ViHAU7k9j0zIU2BxhwwPDdk0ALE1686+mlUxELSKHh8bplHgU2j9Hz0YQ2Bx9xwe7mnUoPD1Wr5/C2Yx0FOpLZ88uGNgcYb8Dw3JNACE2866mmVBEMSKHh8bpmHgU2kNHz0YQ3Bx5ywO/mnEkPD1Wr5/C2Yx0FOpHY88yFNgcZb8Hw3ZNAChNcvOvqplQRC0ih4fG6Zh4FNo/R89GEOAcfccHv5pxJDw9WqufvtWQcBjuS2PTMhTYHGXDA8N2TPwoTXLzs6qVUEQtJoeHxumYeBTaP0vPRhDcHHnLB7+adSg8PVqrn77VjHQU7ktj0zIU2BxlvwfDdk0ALE1y76+mlUxEMSKHh8LpmHgU3j9Hz0YQ3Bx5ywe/mnUoPEFWr5++1Yx0FO5LZ9MyENgcZb8Hw3ZRAChNcvevqpVMSC0ih4PG6Zh4GN4/S89GENwceccDv5p1KDxBVq+fvtWMdBTuS2fPMhDYHGG/B8N2UQAoUXL3s6qVTEgtIoeHwumYeBjaP0fPShDcHHXHB7+edSg8QVqzn8LVjHQU7ktnzzIQ2Bxhvw/DdlEAKFFy97OqlUxILSKDh8LpmHgY2j9Lz0oQ2Bx5xwe/mnUoPEFWs5/C1Yx0FO5LZ88yENgcZb8Pw3ZNACE1y9rCqmVMSC0mh4PG6Zh4GN4/S89KEOAcdccHv5p1KDxBVq+fwtWMdBTuS2fPMhDYHGW/D8N2UQApNcvevqplTEgtIoeDxumceBTaP0vPShDgHHXLA7+edSg8RVavn77VjHQU7k9n0zIQ2Bxhvw/DdlEAKTXL3r6qZUxILSKHg8bpnHgU2j9Lz0oQ4Bx1ywO/nnUoPEFWr5++1Yx0FO5PZ9MyENgcYb8Pw3ZRACI1y969qmVMSC0mh4PG6Zx4FNo/S89KEOAcdccDv551KDxFVq+fvtWMdBTuT2fTMhDYHGG/D8N2UQAiNcvevaplTEgtIoeHxumceBTaP0vPShDgHHXLA7+edSg8RVqvn77VkHAU7k9n0y4Q3Bxhvw/DdlEAIjXL3r2qZUxILSKHg8bpnHgU2j9Lz0oQ4Bx1ywO/mnUoPEVWr5++1ZBwFO5PZ9MuENwcYb8Pw3ZRACI1y969qmVMSC0mh4PG6Zx4FNo/S89KEOAcdccDv5p1KDxFVrOfvtWQcBTuT2fTLhDcHGG/D8N2UQAiNcvevaplTEgtJoeDxumgeBjaP0vPShDcHHXHB7+adSg8RVazn77VkHAU7k9n0y4Q3Bxhvw/DdlEAIjXL3r2qZUxILSaHg8bpoHgY2j9Lz0oQ3Bx1xwe/mnUoPEFas5++1ZBwFPJPZ9MuENwcYb8Pw3ZRACI1y969qmVMSC0mh4PG6aB4GNo/S89KENwcdccHv5p1KDxFVrOfvtWQcBTuT2fTLhDcHGG/D8N2UQAiNcvevaplTEgtJoeDxumgeBjaP0vPShDcHHXHB7+adSg8RVazn77VkHAU8k9n0y4Q3Bxhvw/DdlEAIjXL3r2qZUxILSaHg8bpoHgY2j9Lz0oQ3Bx1xwe/mnUoPEVWs5++1ZBwFPJPZ9MuENwcYb8Pw3ZRACI1y969qmVMSC0mh4PG6aB4GNo/S89KENwcdccHv5p1KDxFVrOfvtWQcBTyT2fTLhDcHGG/D8N2UQAiNcvevaplTEgtJoeDxumgeBjaP0vPShDcHHXHB7+adSg8RVazn77VkHAU8k9n0y4Q3Bxhvw/DdlEAJjXL3r2qZUxILSaHg8bpoHgY2j9Lz0oQ3Bx1xwe/mnUoPEVWs5++1ZBwFPJPZ9MuENwcYb8Pw3ZRACI1y969qmVMSC0mh4PG6aB4GNo/S89KENwcdccHv5p1KDxFVrOfvtWQcBTyT2fTLhDcHGG/D8N2UQAiNcvevaplTEgtJoeDxumgeBjaP0vPShDcHHXHB7+adSg8RVazn77VkHAU8k9n0y4Q3Bxhvw/DdlEAIjXL3r2qZUxILSaHg8bpoHgY2j9Lz0oQ3Bx1xwe/mnUoPEVWs5++1ZBwFPJPZ9MuENwcYb8Pw3ZRACI1y969qmVMSC0mh4PG6aB4GNo/S89KENwcdccHv5p1KDxFVrOfvtWQcBTyT2fTLhDcHGG/D8N2UQAiNcvevaplTEgtJoeDxumgeBjaP0vPShDcHHXHB7+adSg8RVazn77VkHAU8k9n0y4Q3Bxhvw/DdlEAIjXL3r2qZUxILSaHg8bpoHgY2j9Lz0oQ3Bx1xwe/mnUoPEVWs5++1ZBwFPJPZ9MuENwcYb8Pw3ZRACI1y969qmVMSC0mh4PG6aB4GNo/S89KENwcdccHv5p1KDxFVrOfvtWQcBTyT2fTLhDcHGG/D8N2UQA=="
+                );
+                audio.volume = 0.3;
+                audio.play().catch(() => {});
+              } catch (e) {
+                // Ignore audio errors
+              }
+            }
+
+            // Khởi tạo SSE khi trang load
+            initSSE();
+
+            // Cleanup khi trang unload
+            window.addEventListener("beforeunload", function () {
+              if (eventSource) {
+                eventSource.close();
+              }
             });
-            activeList.innerHTML = html;
-          }
-        }
-      }
-    } catch (error) {
-      console.error("Error updating active presence:", error);
-    }
-  }
-
-  // Cập nhật thống kê
-  async function updateStatistics() {
-    try {
-      const response = await fetch("/api/statistics");
-      const data = await response.json();
-
-      const totalStudents = document.getElementById("total-students");
-      const attendedStudents = document.getElementById("attended-students");
-      const attendanceRate = document.getElementById("attendance-rate");
-      const avgDuration = document.getElementById("avg-duration");
-
-      if (totalStudents) totalStudents.textContent = data.total_students || 0;
-      if (attendedStudents)
-        attendedStudents.textContent = data.attended_students || 0;
-      if (attendanceRate)
-        attendanceRate.textContent = `${data.attendance_rate || 0}%`;
-
-      if (avgDuration) {
-        const mins = data.avg_duration_minutes || 0;
-        if (mins >= 60) {
-          const hours = Math.floor(mins / 60);
-          const minutes = mins % 60;
-          avgDuration.textContent = `${hours}h ${minutes}p`;
-        } else {
-          avgDuration.textContent = `${mins}p`;
-        }
-      }
-    } catch (error) {
-      console.error("Error updating statistics:", error);
-    }
-  }
-
-  // Cập nhật active presence mỗi 5 giây
-  setInterval(updateActivePresence, 5000);
-  // Cập nhật thống kê mỗi 10 giây
-  setInterval(updateStatistics, 10000);
-
-  // Gọi ngay lần đầu
-  updateActivePresence();
-  updateStatistics();
-</script>
-{% endblock %}
+          </script>
+          {% endblock %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
