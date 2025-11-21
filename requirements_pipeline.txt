@@ -1,0 +1,9 @@
+# Minimal packages for pipeline (install in a dedicated venv)
+numpy
+opencv-python
+scikit-learn
+pillow
+
+# Optional (better embeddings, heavier install)
+tensorflow
+face_recognition

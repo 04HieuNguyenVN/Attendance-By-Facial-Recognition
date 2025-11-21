@@ -1,0 +1,139 @@
+{% extends 'base.html' %} {% block title %}Quản lý lớp tín chỉ{% endblock %} {%
+block content %}
+<div
+  id="teacher-portal"
+  class="teacher-portal"
+  data-teacher-id="{{ teacher.id if teacher else '' }}"
+>
+  <div class="row g-4 align-items-stretch">
+    <div class="col-12">
+      <div class="card shadow-sm border-0 teacher-hero-card">
+        <div
+          class="card-body d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3"
+        >
+          <div>
+            <p class="text-uppercase text-muted fw-semibold small mb-1">
+              Bảng điều khiển giảng viên
+            </p>
+            <h2 class="h4 mb-2">
+              {% if teacher %}Xin chào {{ teacher.full_name or
+              teacher.teacher_code }}{% else %}Xin chào{% endif %}
+            </h2>
+            <p class="text-muted mb-0">
+              Theo dõi các lớp tín chỉ, trạng thái phiên điểm danh và danh sách
+              sinh viên theo thời gian thực.
+            </p>
+          </div>
+          <div class="text-end">
+            <button class="btn btn-outline-primary" id="teacher-refresh">
+              <i class="fas fa-rotate-right me-1"></i>Tải lại dữ liệu
+            </button>
+            <p class="text-muted small mb-0 mt-2">
+              {% if teacher %}Mã giảng viên: {{ teacher.teacher_code }}{% else
+              %}Bạn có thể lọc theo giảng viên từ API{% endif %}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-8">
+      <div class="card shadow-sm border-0 h-100">
+        <div
+          class="card-header bg-transparent border-bottom-0 d-flex justify-content-between align-items-center"
+        >
+          <div>
+            <h5 class="card-title mb-0">Danh sách lớp tín chỉ</h5>
+            <small class="text-muted"
+              >Các lớp đang hoạt động và số lượng sinh viên tham gia</small
+            >
+          </div>
+          <span class="badge bg-light text-dark" id="teacher-class-count"
+            >0 lớp</span
+          >
+        </div>
+        <div class="card-body">
+          <div id="teacher-class-loading" class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="text-muted mt-3 mb-0">Đang tải dữ liệu lớp tín chỉ...</p>
+          </div>
+          <div id="teacher-class-empty" class="text-center py-5 d-none">
+            <i class="fas fa-inbox fa-2x text-muted mb-3"></i>
+            <p class="text-muted mb-0">Chưa có lớp tín chỉ nào được gán.</p>
+          </div>
+          <div id="teacher-class-list" class="row g-3"></div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-4">
+      <div class="card shadow-sm border-0 h-100">
+        <div class="card-header bg-transparent border-bottom-0">
+          <h5 class="card-title mb-0">Tổng quan nhanh</h5>
+        </div>
+        <div class="card-body">
+          <div class="teacher-stat" id="teacher-stat-total">
+            <p class="text-muted mb-1">Tổng số lớp</p>
+            <h4 class="mb-0">0</h4>
+          </div>
+          <div class="teacher-stat" id="teacher-stat-active">
+            <p class="text-muted mb-1">Phiên đang mở</p>
+            <h4 class="mb-0">0</h4>
+          </div>
+          <div class="teacher-stat" id="teacher-stat-students">
+            <p class="text-muted mb-1">Sinh viên đang theo học</p>
+            <h4 class="mb-0">0</h4>
+          </div>
+          <div class="mt-3">
+            <small class="text-muted d-block">
+              Các số liệu được cập nhật tự động khi có thay đổi điểm danh.
+            </small>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="teacherClassModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title" id="teacher-class-modal-title">
+            Thông tin lớp tín chỉ
+          </h5>
+          <small class="text-muted" id="teacher-class-modal-meta"></small>
+        </div>
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+          aria-label="Close"
+        ></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-4">
+          <div class="col-12 col-lg-6">
+            <h6 class="fw-semibold mb-3">Danh sách sinh viên</h6>
+            <div
+              id="teacher-class-students"
+              class="border rounded p-3 bg-light-subtle"
+            ></div>
+          </div>
+          <div class="col-12 col-lg-6">
+            <h6 class="fw-semibold mb-3">Phiên điểm danh gần đây</h6>
+            <div
+              id="teacher-class-sessions"
+              class="border rounded p-3 bg-light-subtle"
+            ></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          Đóng
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

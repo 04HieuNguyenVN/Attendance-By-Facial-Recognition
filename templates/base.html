@@ -34,12 +34,37 @@
       <!-- Notifications Container -->
       <div id="notification-container"></div>
 
+      {% with flashes = get_flashed_messages(with_categories=True) %} {% if
+      flashes %}
+      <div class="row justify-content-center mb-3">
+        <div class="col-lg-8">
+          {% for category, message in flashes %}
+          <div
+            class="alert alert-{{ category }} alert-dismissible fade show"
+            role="alert"
+          >
+            {{ message }}
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="alert"
+              aria-label="Close"
+            ></button>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %} {% endwith %}
+
       <!-- Page Content -->
       {% block content %}{% endblock %}
     </main>
 
     <!-- Footer Component -->
     {% include 'components/footer.html' %}
+
+    <!-- Attendance Detail Modal -->
+    {% include 'components/attendance_detail_modal.html' %}
 
     <!-- Common Scripts Component -->
     {% include 'components/scripts.html' %}

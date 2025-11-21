@@ -1,0 +1,6 @@
+<!-- REMOVED: advanced AI requirements archived to avoid dependency conflicts. -->
+
+This file previously contained optional, heavy AI dependencies (TensorFlow, PyTorch, model weights, etc.).
+To prevent accidental installation and environment conflicts, the file content was removed.
+
+If you need to re-enable the advanced AI mode, restore a copy from version control or create a separate virtual environment and populate `requirements_advanced.txt` with the required packages.

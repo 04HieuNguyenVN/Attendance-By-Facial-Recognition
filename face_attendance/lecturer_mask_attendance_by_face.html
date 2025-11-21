@@ -1,0 +1,25 @@
+{% extends "lecturer/base_lecturer_dashboard.html" %}
+{% load static %}
+
+{% block css %}
+    <link href="{% static 'assets/libs/datatables.net-bs4/css/dataTables.bootstrap4.css' %}" rel="stylesheet"/>
+    <link rel="stylesheet" type="text/css" href="{% static 'assets/extra-libs/multicheck/multicheck.css' %}"/>
+{% endblock %}
+
+{% block content %}
+    <div class="card">
+        <div class="table-responsive">
+            <form method="post" action="{% url 'lecturer_mark_attendance_by_face' classroom.id_classroom %}">
+                {% csrf_token %}
+                <div class="container_video text-center">
+                    <div>
+                        <h2 class="card-title mt-2 text-center">{{ classroom.name }}</h2>
+                        <img id="video-feed" style="width: 1024px; height: 768px;"
+                             src="/lecturer/live-video-feed2/{{ classroom.id_classroom }}"
+                             alt="Live Video Feed">
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+{% endblock %}

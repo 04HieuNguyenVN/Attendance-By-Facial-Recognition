@@ -14,6 +14,12 @@ python-dotenv>=1.0.0
 face-recognition>=1.3.0
 dlib>=19.24.0
 
+# DeepFace for better face recognition (from Cong-Nghe-Xu-Ly-Anh system)
+deepface>=0.0.79
+
+# YOLOv8 for face detection (optional but recommended)
+ultralytics>=8.0.0
+
 # Computer vision
 opencv-python>=4.8.0
 numpy>=1.24.0

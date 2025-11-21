@@ -64,6 +64,9 @@ class DatabaseManager:
                     FOREIGN KEY (class_id) REFERENCES classes(id)
                 )
             ''')
+
+            # Bổ sung khóa liên kết user -> student (không áp UNIQUE trực tiếp để tránh lỗi ALTER)
+            self._ensure_column(cursor, 'students', 'user_id', 'INTEGER')
             
             # Bảng điểm danh (cải thiện)
             cursor.execute('''
@@ -85,6 +88,10 @@ class DatabaseManager:
                     FOREIGN KEY (class_id) REFERENCES classes(id)
                 )
             ''')
+
+            # Bổ sung cột mới (nếu thiếu) để liên kết lớp tín chỉ và phiên điểm danh
+            self._ensure_column(cursor, 'attendance', 'credit_class_id', 'INTEGER')
+            self._ensure_column(cursor, 'attendance', 'session_id', 'INTEGER')
             
             # Bảng cài đặt hệ thống
             cursor.execute('''
@@ -109,6 +116,23 @@ class DatabaseManager:
                     is_active BOOLEAN DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_login TIMESTAMP
+                )
+            ''')
+
+            # Bảng thông tin giảng viên
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS teachers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    teacher_code VARCHAR(20) UNIQUE NOT NULL,
+                    full_name VARCHAR(100) NOT NULL,
+                    email VARCHAR(100),
+                    phone VARCHAR(20),
+                    department VARCHAR(100),
+                    user_id INTEGER UNIQUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_active BOOLEAN DEFAULT 1,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
                 )
             ''')
             
@@ -137,11 +161,90 @@ class DatabaseManager:
                 )
             ''')
             
+            # Bảng lưu nhiều ảnh mẫu của sinh viên (cho AI training)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS student_face_samples (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    student_id VARCHAR(20) NOT NULL,
+                    image_path VARCHAR(200) NOT NULL,
+                    embedding BLOB,
+                    quality_score REAL,
+                    is_primary BOOLEAN DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (student_id) REFERENCES students(student_id) ON DELETE CASCADE
+                )
+            ''')
+
+            # Bảng lớp tín chỉ (dành cho giảng viên)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS credit_classes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    credit_code VARCHAR(30) UNIQUE NOT NULL,
+                    subject_name VARCHAR(150) NOT NULL,
+                    teacher_id INTEGER,
+                    semester VARCHAR(20),
+                    academic_year VARCHAR(20),
+                    room VARCHAR(50),
+                    schedule_info TEXT,
+                    status VARCHAR(20) DEFAULT 'draft',
+                    enrollment_limit INTEGER,
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_active BOOLEAN DEFAULT 1,
+                    FOREIGN KEY (teacher_id) REFERENCES teachers(id)
+                )
+            ''')
+
+            # Bảng liên kết sinh viên với lớp tín chỉ
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS credit_class_students (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    credit_class_id INTEGER NOT NULL,
+                    student_id INTEGER NOT NULL,
+                    enrollment_status VARCHAR(20) DEFAULT 'active',
+                    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (credit_class_id, student_id),
+                    FOREIGN KEY (credit_class_id) REFERENCES credit_classes(id),
+                    FOREIGN KEY (student_id) REFERENCES students(id)
+                )
+            ''')
+
+            # Bảng phiên điểm danh cho lớp tín chỉ
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS attendance_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    credit_class_id INTEGER NOT NULL,
+                    opened_by INTEGER,
+                    session_date DATE NOT NULL,
+                    opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    checkin_deadline TIMESTAMP,
+                    checkout_deadline TIMESTAMP,
+                    closed_at TIMESTAMP,
+                    status VARCHAR(20) DEFAULT 'scheduled',
+                    notes TEXT,
+                    FOREIGN KEY (credit_class_id) REFERENCES credit_classes(id),
+                    FOREIGN KEY (opened_by) REFERENCES users(id)
+                )
+            ''')
+            
             # Tạo indexes để tối ưu hiệu suất
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(attendance_date)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_student ON attendance(student_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_students_active ON students(is_active)')
+            try:
+                cursor.execute(
+                    'CREATE UNIQUE INDEX IF NOT EXISTS idx_students_user '
+                    'ON students(user_id) WHERE user_id IS NOT NULL'
+                )
+            except sqlite3.OperationalError as exc:
+                logger.warning("Không thể tạo unique index cho students.user_id: %s", exc)
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_logs_created ON system_logs(created_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_face_samples_student ON student_face_samples(student_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_teachers_code ON teachers(teacher_code)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_credit_classes_teacher ON credit_classes(teacher_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_credit_class_students_cc ON credit_class_students(credit_class_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_sessions_class ON attendance_sessions(credit_class_id)')
             
             # Thêm cài đặt mặc định
             self._insert_default_settings(cursor)
@@ -151,6 +254,9 @@ class DatabaseManager:
             
             # Tạo teacher mặc định
             self._create_default_teacher(cursor)
+
+            # Tạo student mặc định (để test frontend)
+            self._create_default_student_user(cursor)
             
             conn.commit()
             logger.info("Database initialized successfully")
@@ -193,6 +299,135 @@ class DatabaseManager:
             INSERT OR IGNORE INTO users (username, password_hash, full_name, role, email)
             VALUES (?, ?, ?, ?, ?)
         ''', ('teacher', default_password, 'Giáo viên', 'teacher', 'teacher@example.com'))
+
+    def _create_default_student_user(self, cursor):
+        """Tạo tài khoản sinh viên mặc định để thử nghiệm UI."""
+        import hashlib
+        cursor.execute('SELECT id FROM users WHERE username = ? AND is_active = 1', ('student',))
+        if cursor.fetchone():
+            return
+
+        password_hash = hashlib.sha256('student123'.encode()).hexdigest()
+        cursor.execute('''
+            INSERT INTO users (username, password_hash, full_name, role, email)
+            VALUES (?, ?, ?, ?, ?)
+        ''', ('student', password_hash, 'Sinh viên mặc định', 'student', 'student@example.com'))
+        student_user_id = cursor.lastrowid
+
+        # Liên kết user này với sinh viên đầu tiên (nếu có sẵn dữ liệu mẫu)
+        cursor.execute('SELECT id FROM students WHERE is_active = 1 ORDER BY id LIMIT 1')
+        row = cursor.fetchone()
+        if row:
+            student_db_id = row['id'] if isinstance(row, sqlite3.Row) else row[0]
+            cursor.execute('''
+                UPDATE students
+                SET user_id = ?
+                WHERE id = ? AND (user_id IS NULL OR user_id = ?)
+            ''', (student_user_id, student_db_id, student_user_id))
+
+    # === QUẢN LÝ NGƯỜI DÙNG ===
+
+    def get_user_by_id(self, user_id):
+        """Lấy thông tin người dùng theo ID."""
+        if not user_id:
+            return None
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM users WHERE id = ? AND is_active = 1', (user_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_user_by_username(self, username):
+        """Lấy thông tin người dùng theo username."""
+        if not username:
+            return None
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM users WHERE username = ? AND is_active = 1', (username,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def update_user_password(self, user_id, password_hash):
+        """Cập nhật mật khẩu người dùng."""
+        if not user_id or not password_hash:
+            return False
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE users SET password_hash = ? WHERE id = ? AND is_active = 1',
+                (password_hash, user_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def update_last_login(self, user_id):
+        """Cập nhật thời gian đăng nhập cuối cùng."""
+        if not user_id:
+            return False
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE users SET last_login = ? WHERE id = ? AND is_active = 1',
+                (datetime.now().isoformat(), user_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def _ensure_column(self, cursor, table_name, column_name, column_def):
+        """Thêm cột mới nếu chưa tồn tại (dùng cho nâng cấp DB)."""
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        columns = [row[1] for row in cursor.fetchall()]
+        if column_name in columns:
+            return
+        ddl = f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}".strip()
+        try:
+            cursor.execute(ddl)
+        except sqlite3.OperationalError as exc:
+            logger.warning(
+                "Không thể thêm cột %s.%s (%s): %s",
+                table_name,
+                column_name,
+                column_def,
+                exc,
+            )
+
+    def _generate_class_code(self, class_name, attempt=0):
+        """Generate a normalized class code with optional suffix for uniqueness."""
+        normalized = ''.join(ch for ch in class_name if ch.isalnum()) or 'CLASS'
+        normalized = normalized.upper()
+        if attempt <= 0:
+            return normalized[:20]
+        suffix = str(attempt)
+        prefix_length = max(1, 20 - len(suffix))
+        return (normalized[:prefix_length] + suffix)[:20]
+
+    def _get_or_create_class(self, cursor, class_name):
+        """Find existing class_id by name or create a new class entry."""
+        if class_name is None:
+            return None
+        trimmed = class_name.strip()
+        if not trimmed:
+            return None
+
+        cursor.execute('SELECT id FROM classes WHERE class_name = ?', (trimmed,))
+        row = cursor.fetchone()
+        if row:
+            return row[0]
+
+        attempt = 0
+        while attempt < 10:
+            class_code = self._generate_class_code(trimmed, attempt)
+            try:
+                cursor.execute('''
+                    INSERT INTO classes (class_code, class_name)
+                    VALUES (?, ?)
+                ''', (class_code, trimmed))
+                logger.info(f"Created new class: {trimmed} (ID: {cursor.lastrowid}, Code: {class_code})")
+                return cursor.lastrowid
+            except sqlite3.IntegrityError:
+                attempt += 1
+
+        raise ValueError(f"Không thể tạo lớp học mới cho {trimmed}")
     
     # === QUẢN LÝ SINH VIÊN ===
     def add_student(self, student_id, full_name, email=None, phone=None, class_name=None, face_image_path=None):
@@ -203,18 +438,7 @@ class DatabaseManager:
                 # Tìm hoặc tạo class_id từ class_name
                 class_id = None
                 if class_name:
-                    cursor.execute('SELECT id FROM classes WHERE class_name = ?', (class_name,))
-                    result = cursor.fetchone()
-                    if result:
-                        class_id = result[0]
-                    else:
-                        # Tạo lớp mới nếu chưa có
-                        # Generate class_code from class_name (remove spaces, uppercase)
-                        class_code = class_name.replace(' ', '').upper()[:20]
-                        cursor.execute('INSERT INTO classes (class_code, class_name) VALUES (?, ?)', 
-                                     (class_code, class_name))
-                        class_id = cursor.lastrowid
-                        logger.info(f"Created new class: {class_name} (ID: {class_id}, Code: {class_code})")
+                    class_id = self._get_or_create_class(cursor, class_name)
                 
                 cursor.execute('''
                     INSERT INTO students (student_id, full_name, email, phone, class_id, face_image_path)
@@ -233,6 +457,34 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM students WHERE student_id = ?', (student_id,))
             return cursor.fetchone()
+
+    def get_student_by_user(self, user_id):
+        """Lấy sinh viên dựa trên user_id đã liên kết."""
+        if not user_id:
+            return None
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM students WHERE user_id = ? AND is_active = 1', (user_id,))
+            return cursor.fetchone()
+
+    def link_student_to_user(self, student_identifier, user_id):
+        """Gán user_id cho sinh viên (nếu chưa được gán)."""
+        if not student_identifier or not user_id:
+            return False
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                student_db_id = self._resolve_student_db_id(cursor, student_identifier)
+            except ValueError:
+                return False
+
+            cursor.execute('''
+                UPDATE students
+                SET user_id = ?
+                WHERE id = ? AND (user_id IS NULL OR user_id = ?)
+            ''', (user_id, student_db_id, user_id))
+            conn.commit()
+            return cursor.rowcount > 0
     
     def get_all_students(self, active_only=True):
         """Lấy danh sách tất cả sinh viên"""
@@ -246,20 +498,41 @@ class DatabaseManager:
     
     def update_student(self, student_id, **kwargs):
         """Cập nhật thông tin sinh viên"""
-        allowed_fields = ['full_name', 'email', 'phone', 'class_name', 'face_image_path', 'is_active']
-        updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
-        
-        if not updates:
+        if not kwargs:
             return False
-        
-        updates['updated_at'] = datetime.now().isoformat()
-        set_clause = ', '.join([f"{k} = ?" for k in updates.keys()])
-        
+
+        allowed_fields = ['full_name', 'email', 'phone', 'face_image_path', 'is_active', 'class_id']
+        updates = {}
+        class_name = kwargs.pop('class_name', None)
+
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(f'''
-                UPDATE students SET {set_clause} WHERE student_id = ?
-            ''', list(updates.values()) + [student_id])
+
+            if class_name is not None:
+                class_id = None
+                if isinstance(class_name, str) and class_name.strip():
+                    class_id = self._get_or_create_class(cursor, class_name)
+                updates['class_id'] = class_id
+
+            for field in allowed_fields:
+                if field in kwargs and kwargs[field] is not None:
+                    value = kwargs[field]
+                    if field == 'is_active':
+                        if isinstance(value, str):
+                            value = 1 if value.strip().lower() in ('1', 'true', 'on', 'yes') else 0
+                        else:
+                            value = 1 if bool(value) else 0
+                    updates[field] = value
+
+            if not updates:
+                return False
+
+            updates['updated_at'] = datetime.now().isoformat()
+            set_clause = ', '.join([f"{k} = ?" for k in updates.keys()])
+            cursor.execute(
+                f'''UPDATE students SET {set_clause} WHERE student_id = ?''',
+                list(updates.values()) + [student_id]
+            )
             conn.commit()
             return cursor.rowcount > 0
     
@@ -267,8 +540,107 @@ class DatabaseManager:
         """Xóa sinh viên (soft delete)"""
         return self.update_student(student_id, is_active=False)
     
+    # === QUẢN LÝ ẢNH MẪU SINH VIÊN (CHO AI TRAINING) ===
+    
+    def add_face_sample(self, student_id, image_path, embedding=None, quality_score=None, is_primary=False):
+        """Thêm ảnh mẫu khuôn mặt cho sinh viên"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute('''
+                    INSERT INTO student_face_samples (student_id, image_path, embedding, quality_score, is_primary)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (student_id, image_path, embedding, quality_score, is_primary))
+                conn.commit()
+                logger.info(f"Added face sample for student {student_id}: {image_path}")
+                return cursor.lastrowid
+            except Exception as e:
+                logger.error(f"Failed to add face sample: {e}")
+                return None
+    
+    def get_face_samples(self, student_id):
+        """Lấy tất cả ảnh mẫu của sinh viên"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM student_face_samples 
+                WHERE student_id = ?
+                ORDER BY is_primary DESC, created_at DESC
+            ''', (student_id,))
+            return cursor.fetchall()
+    
+    def get_primary_face_sample(self, student_id):
+        """Lấy ảnh đại diện chính của sinh viên"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM student_face_samples 
+                WHERE student_id = ? AND is_primary = 1
+                LIMIT 1
+            ''', (student_id,))
+            return cursor.fetchone()
+    
+    def set_primary_face_sample(self, sample_id):
+        """Đặt một ảnh làm ảnh đại diện chính"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Lấy student_id từ sample_id
+            cursor.execute('SELECT student_id FROM student_face_samples WHERE id = ?', (sample_id,))
+            result = cursor.fetchone()
+            if not result:
+                return False
+            
+            student_id = result['student_id']
+            
+            # Bỏ primary của tất cả ảnh khác
+            cursor.execute('''
+                UPDATE student_face_samples 
+                SET is_primary = 0 
+                WHERE student_id = ?
+            ''', (student_id,))
+            
+            # Đặt ảnh này làm primary
+            cursor.execute('''
+                UPDATE student_face_samples 
+                SET is_primary = 1 
+                WHERE id = ?
+            ''', (sample_id,))
+            
+            conn.commit()
+            return True
+    
+    def delete_face_sample(self, sample_id):
+        """Xóa ảnh mẫu"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM student_face_samples WHERE id = ?', (sample_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    def get_all_student_embeddings(self):
+        """Lấy tất cả embeddings của sinh viên (cho training)"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT sfs.student_id, s.full_name, sfs.embedding, sfs.image_path
+                FROM student_face_samples sfs
+                JOIN students s ON sfs.student_id = s.student_id
+                WHERE s.is_active = 1 AND sfs.embedding IS NOT NULL
+                ORDER BY sfs.student_id, sfs.quality_score DESC
+            ''')
+            return cursor.fetchall()
+    
+    def count_face_samples(self, student_id):
+        """Đếm số lượng ảnh mẫu của sinh viên"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM student_face_samples WHERE student_id = ?', (student_id,))
+            return cursor.fetchone()[0]
+    
     # === QUẢN LÝ ĐIỂM DANH ===
-    def mark_attendance(self, student_id, student_name, status='present', confidence_score=None, notes=None):
+    def mark_attendance(self, student_id, student_name, status='present', confidence_score=None,
+                        notes=None, credit_class_id=None, session_id=None):
         """Điểm danh sinh viên"""
         today = date.today().isoformat()
         now = datetime.now().isoformat()
@@ -288,9 +660,13 @@ class DatabaseManager:
             
             # Thêm điểm danh
             cursor.execute('''
-                INSERT INTO attendance (student_id, student_name, attendance_date, check_in_time, status, confidence_score, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (student_id, student_name, today, now, status, confidence_score, notes))
+                INSERT INTO attendance (
+                    student_id, student_name, attendance_date, check_in_time,
+                    status, confidence_score, notes, credit_class_id, session_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (student_id, student_name, today, now, status, confidence_score, notes,
+                  credit_class_id, session_id))
             
             conn.commit()
             logger.info(f"Marked attendance for {student_name} ({student_id})")
@@ -364,6 +740,8 @@ class DatabaseManager:
                     s.email, 
                     s.phone, 
                     c.class_name,
+                    cc.subject_name AS credit_class_name,
+                    cc.credit_code AS credit_class_code,
                     CASE 
                         WHEN a.check_out_time IS NOT NULL THEN
                             CAST((julianday(a.check_out_time) - julianday(a.check_in_time)) * 24 * 60 AS INTEGER)
@@ -373,10 +751,11 @@ class DatabaseManager:
                 FROM attendance a
                 LEFT JOIN students s ON a.student_id = s.student_id
                 LEFT JOIN classes c ON s.class_id = c.id
+                LEFT JOIN credit_classes cc ON a.credit_class_id = cc.id
                 WHERE a.attendance_date = ?
                 ORDER BY a.check_in_time DESC
             ''', (attendance_date,))
-            return cursor.fetchall()
+            return [dict(r) for r in cursor.fetchall()]
     
     def get_today_attendance(self):
         """Lấy danh sách điểm danh hôm nay"""
@@ -384,40 +763,104 @@ class DatabaseManager:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT a.*, s.full_name, s.email, s.phone, c.class_name
+                SELECT 
+                    a.*, 
+                    s.full_name, s.email, s.phone, c.class_name,
+                    cc.subject_name AS credit_class_name,
+                    cc.credit_code AS credit_class_code
                 FROM attendance a
                 LEFT JOIN students s ON a.student_id = s.student_id
                 LEFT JOIN classes c ON s.class_id = c.id
+                LEFT JOIN credit_classes cc ON a.credit_class_id = cc.id
                 WHERE a.attendance_date = ?
                 ORDER BY a.check_in_time DESC
             ''', (today,))
-            return cursor.fetchall()
+            return [dict(r) for r in cursor.fetchall()]
     
     def get_attendance_by_date_range(self, start_date, end_date):
         """Lấy điểm danh theo khoảng thời gian"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT a.*, s.email, s.phone, c.class_name
+                SELECT 
+                    a.*, 
+                    s.email, s.phone, c.class_name,
+                    cc.subject_name AS credit_class_name,
+                    cc.credit_code AS credit_class_code
                 FROM attendance a
                 LEFT JOIN students s ON a.student_id = s.student_id
                 LEFT JOIN classes c ON s.class_id = c.id
+                LEFT JOIN credit_classes cc ON a.credit_class_id = cc.id
                 WHERE a.attendance_date BETWEEN ? AND ?
                 ORDER BY a.attendance_date DESC, a.check_in_time DESC
             ''', (start_date, end_date))
-            return cursor.fetchall()
+            return [dict(r) for r in cursor.fetchall()]
     
     def get_student_attendance_history(self, student_id, limit=30):
         """Lấy lịch sử điểm danh của sinh viên"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT * FROM attendance 
-                WHERE student_id = ?
-                ORDER BY attendance_date DESC, check_in_time DESC
+                SELECT 
+                    a.*, s.full_name, s.class_id, c.class_name,
+                    cc.subject_name AS credit_class_name,
+                    cc.credit_code AS credit_class_code
+                FROM attendance a
+                LEFT JOIN students s ON a.student_id = s.student_id
+                LEFT JOIN classes c ON s.class_id = c.id
+                LEFT JOIN credit_classes cc ON a.credit_class_id = cc.id
+                WHERE a.student_id = ?
+                ORDER BY a.attendance_date DESC, a.check_in_time DESC
                 LIMIT ?
             ''', (student_id, limit))
-            return cursor.fetchall()
+            return [dict(r) for r in cursor.fetchall()]
+
+    # === PHIÊN ĐIỂM DANH ===
+
+    def expire_attendance_sessions(self):
+        """Đánh dấu các phiên quá hạn là expired."""
+        now = datetime.now().isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE attendance_sessions
+                SET status = 'expired', closed_at = COALESCE(closed_at, CURRENT_TIMESTAMP)
+                WHERE status = 'open'
+                  AND checkin_deadline IS NOT NULL
+                  AND checkin_deadline <= ?
+            ''', (now,))
+            conn.commit()
+            return cursor.rowcount
+
+    def get_current_open_session(self):
+        """Lấy phiên điểm danh đang mở (chưa hết hạn)."""
+        now = datetime.now().isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT ast.*, cc.subject_name AS credit_class_name, cc.credit_code
+                FROM attendance_sessions ast
+                LEFT JOIN credit_classes cc ON ast.credit_class_id = cc.id
+                WHERE ast.status = 'open'
+                  AND ast.closed_at IS NULL
+                  AND (ast.checkin_deadline IS NULL OR ast.checkin_deadline > ?)
+                ORDER BY ast.opened_at DESC
+                LIMIT 1
+            ''', (now,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_session_by_id(self, session_id):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT ast.*, cc.subject_name AS credit_class_name, cc.credit_code
+                FROM attendance_sessions ast
+                LEFT JOIN credit_classes cc ON ast.credit_class_id = cc.id
+                WHERE ast.id = ?
+            ''', (session_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
     
     # === QUẢN LÝ CÀI ĐẶT ===
     def get_setting(self, key, default=None):
@@ -606,6 +1049,20 @@ class DatabaseManager:
             ''', (class_id,))
             conn.commit()
             return cursor.rowcount > 0
+
+    def delete_class_by_name(self, class_name):
+        """Xóa lớp theo tên (soft delete). Trả về số bản ghi bị ảnh hưởng."""
+        if not class_name:
+            return 0
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE classes
+                SET is_active = 0, updated_at = CURRENT_TIMESTAMP
+                WHERE class_name = ?
+            ''', (class_name,))
+            conn.commit()
+            return cursor.rowcount
     
     def get_students_by_class(self, class_id):
         """Lấy danh sách sinh viên trong lớp"""
@@ -666,6 +1123,294 @@ class DatabaseManager:
                 'daily_stats': daily_stats,
                 'period': f"{start_date} to {end_date}"
             }
+
+    # === QUẢN LÝ GIẢNG VIÊN ===
+
+    def create_teacher(self, teacher_code, full_name, email=None, phone=None, department=None, user_id=None):
+        """Tạo giảng viên mới."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO teachers (teacher_code, full_name, email, phone, department, user_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (teacher_code, full_name, email, phone, department, user_id))
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_teacher_by_code(self, teacher_code):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM teachers WHERE teacher_code = ? AND is_active = 1', (teacher_code,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_teacher(self, teacher_id):
+        """Lấy thông tin giảng viên theo ID."""
+        if not teacher_id:
+            return None
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM teachers WHERE id = ? AND is_active = 1', (teacher_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_teacher_by_user(self, user_id):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM teachers WHERE user_id = ? AND is_active = 1', (user_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_all_teachers(self, active_only=True):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if active_only:
+                cursor.execute('SELECT * FROM teachers WHERE is_active = 1 ORDER BY full_name')
+            else:
+                cursor.execute('SELECT * FROM teachers ORDER BY full_name')
+            return [dict(row) for row in cursor.fetchall()]
+
+    def update_teacher(self, teacher_id, **kwargs):
+        valid_fields = ['teacher_code', 'full_name', 'email', 'phone', 'department', 'user_id', 'is_active']
+        updates = {k: v for k, v in kwargs.items() if k in valid_fields}
+        if not updates:
+            return False
+        updates['updated_at'] = datetime.now().isoformat()
+        set_clause = ', '.join(f"{k} = ?" for k in updates.keys())
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                f'''UPDATE teachers SET {set_clause} WHERE id = ?''',
+                list(updates.values()) + [teacher_id]
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    # === QUẢN LÝ LỚP TÍN CHỈ ===
+
+    def create_credit_class(self, credit_code, subject_name, teacher_id=None, semester=None,
+                             academic_year=None, room=None, schedule_info=None,
+                             enrollment_limit=None, notes=None, status='draft'):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO credit_classes (
+                    credit_code, subject_name, teacher_id, semester, academic_year, room,
+                    schedule_info, status, enrollment_limit, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (credit_code, subject_name, teacher_id, semester, academic_year, room,
+                  schedule_info, status, enrollment_limit, notes))
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_credit_class(self, credit_class_id):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM credit_classes WHERE id = ? AND is_active = 1', (credit_class_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_credit_class_by_code(self, credit_code):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM credit_classes WHERE credit_code = ? AND is_active = 1', (credit_code,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def list_credit_classes(self, teacher_id=None, active_only=True):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            query = 'SELECT * FROM credit_classes WHERE 1=1'
+            params = []
+            if active_only:
+                query += ' AND is_active = 1'
+            if teacher_id:
+                query += ' AND teacher_id = ?'
+                params.append(teacher_id)
+            query += ' ORDER BY academic_year DESC, semester DESC, subject_name'
+            cursor.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def list_credit_classes_overview(self, teacher_id=None, active_only=True):
+        """Trả về danh sách lớp tín chỉ kèm số sinh viên đã liên kết."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            base_query = [
+                'SELECT cc.*,',
+                '   (',
+                '       SELECT COUNT(*)',
+                '       FROM credit_class_students ccs',
+                '       JOIN students s ON ccs.student_id = s.id',
+                '       WHERE ccs.credit_class_id = cc.id',
+                '         AND s.is_active = 1',
+                '   ) AS student_count',
+                'FROM credit_classes cc',
+                'WHERE 1=1'
+            ]
+            params = []
+            if active_only:
+                base_query.append('AND cc.is_active = 1')
+            if teacher_id:
+                base_query.append('AND cc.teacher_id = ?')
+                params.append(teacher_id)
+            base_query.append('ORDER BY cc.academic_year DESC, cc.semester DESC, cc.subject_name')
+            cursor.execute('\n'.join(base_query), params)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_credit_classes_for_student(self, student_identifier, active_only=True):
+        """Lấy danh sách lớp tín chỉ mà sinh viên đã đăng ký."""
+        if not student_identifier:
+            return []
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if isinstance(student_identifier, int):
+                student_db_id = student_identifier
+            else:
+                cursor.execute('SELECT id FROM students WHERE student_id = ?', (student_identifier,))
+                row = cursor.fetchone()
+                if not row:
+                    return []
+                student_db_id = row[0] if not isinstance(row, sqlite3.Row) else row['id']
+
+            query = [
+                'SELECT cc.*,',
+                '       ccs.enrollment_status,',
+                '       ccs.joined_at,',
+                '       (',
+                '           SELECT COUNT(*)',
+                '           FROM credit_class_students sub',
+                '           JOIN students sub_s ON sub.student_id = sub_s.id',
+                '           WHERE sub.credit_class_id = cc.id AND sub_s.is_active = 1',
+                '       ) AS student_count',
+                'FROM credit_class_students ccs',
+                'JOIN credit_classes cc ON cc.id = ccs.credit_class_id',
+                'WHERE ccs.student_id = ?'
+            ]
+            params = [student_db_id]
+            if active_only:
+                query.append('AND cc.is_active = 1')
+            query.append('ORDER BY cc.academic_year DESC, cc.semester DESC, cc.subject_name')
+            cursor.execute('\n'.join(query), params)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def update_credit_class(self, credit_class_id, **kwargs):
+        valid_fields = ['credit_code', 'subject_name', 'teacher_id', 'semester', 'academic_year',
+                        'room', 'schedule_info', 'status', 'enrollment_limit', 'notes', 'is_active']
+        updates = {k: v for k, v in kwargs.items() if k in valid_fields}
+        if not updates:
+            return False
+        updates['updated_at'] = datetime.now().isoformat()
+        set_clause = ', '.join(f"{k} = ?" for k in updates.keys())
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                f'''UPDATE credit_classes SET {set_clause} WHERE id = ?''',
+                list(updates.values()) + [credit_class_id]
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def delete_credit_class(self, credit_class_id):
+        return self.update_credit_class(credit_class_id, is_active=0)
+
+    def _resolve_student_db_id(self, cursor, student_identifier):
+        if isinstance(student_identifier, int):
+            return student_identifier
+        cursor.execute('SELECT id FROM students WHERE student_id = ?', (student_identifier,))
+        row = cursor.fetchone()
+        if not row:
+            raise ValueError(f"Không tìm thấy sinh viên với mã {student_identifier}")
+        return row['id'] if isinstance(row, sqlite3.Row) else row[0]
+
+    def enroll_student_to_credit_class(self, credit_class_id, student_identifier):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            student_db_id = self._resolve_student_db_id(cursor, student_identifier)
+            cursor.execute('''
+                INSERT OR IGNORE INTO credit_class_students (credit_class_id, student_id)
+                VALUES (?, ?)
+            ''', (credit_class_id, student_db_id))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def remove_student_from_credit_class(self, credit_class_id, student_identifier):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            student_db_id = self._resolve_student_db_id(cursor, student_identifier)
+            cursor.execute('''
+                DELETE FROM credit_class_students WHERE credit_class_id = ? AND student_id = ?
+            ''', (credit_class_id, student_db_id))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def get_credit_class_students(self, credit_class_id):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT s.*, ccs.enrollment_status, ccs.joined_at
+                FROM credit_class_students ccs
+                JOIN students s ON ccs.student_id = s.id
+                WHERE ccs.credit_class_id = ? AND s.is_active = 1
+                ORDER BY s.full_name
+            ''', (credit_class_id,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    # === PHIÊN ĐIỂM DANH LỚP TÍN CHỈ ===
+
+    def create_attendance_session(self, credit_class_id, opened_by, session_date=None,
+                                  checkin_deadline=None, checkout_deadline=None, status='open', notes=None):
+        session_date = session_date or date.today().isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            # Không cho mở phiên mới nếu đã có phiên đang mở
+            cursor.execute('''
+                SELECT id FROM attendance_sessions
+                WHERE credit_class_id = ? AND status IN ('open', 'scheduled') AND closed_at IS NULL
+            ''', (credit_class_id,))
+            if cursor.fetchone():
+                raise ValueError('Lớp đang có phiên điểm danh mở, vui lòng đóng trước khi tạo phiên mới')
+
+            cursor.execute('''
+                INSERT INTO attendance_sessions (
+                    credit_class_id, opened_by, session_date, checkin_deadline, checkout_deadline, status, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (credit_class_id, opened_by, session_date, checkin_deadline, checkout_deadline, status, notes))
+            conn.commit()
+            return cursor.lastrowid
+
+    def close_attendance_session(self, session_id, status='closed'):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE attendance_sessions
+                SET status = ?, closed_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (status, session_id))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def get_active_session_for_class(self, credit_class_id):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM attendance_sessions
+                WHERE credit_class_id = ? AND status IN ('open', 'scheduled') AND closed_at IS NULL
+                ORDER BY opened_at DESC
+                LIMIT 1
+            ''', (credit_class_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def list_sessions_for_class(self, credit_class_id, limit=20):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM attendance_sessions
+                WHERE credit_class_id = ?
+                ORDER BY opened_at DESC
+                LIMIT ?
+            ''', (credit_class_id, limit))
+            return [dict(row) for row in cursor.fetchall()]
 
 # Khởi tạo instance global
 db = DatabaseManager()
