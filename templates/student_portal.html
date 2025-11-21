@@ -1,0 +1,212 @@
+{% extends 'base.html' %} {% block title %}Cổng thông tin sinh viên{% endblock
+%} {% block content %}
+<div
+  id="student-portal"
+  class="student-portal"
+  data-student-id="{{ student.student_id if student else '' }}"
+>
+  {% if not student %}
+  <div class="alert alert-warning">
+    <i class="fas fa-info-circle me-1"></i>
+    Không tìm thấy thông tin sinh viên cho tài khoản hiện tại. Vui lòng liên hệ
+    quản trị viên để được cấp quyền.
+  </div>
+  {% endif %}
+  <div class="row g-4 align-items-stretch">
+    <div class="col-12 col-lg-4">
+      <div class="card shadow-sm border-0 h-100">
+        <div class="card-body">
+          <p class="text-uppercase text-muted fw-semibold small mb-1">
+            Hồ sơ sinh viên
+          </p>
+          <h3 class="h5 mb-1">
+            {{ student.full_name if student else 'Chưa xác định' }}
+          </h3>
+          <p class="text-muted mb-3">
+            MSSV: {{ student.student_id if student else '—' }}
+          </p>
+          <ul class="list-unstyled small text-muted">
+            <li>
+              <i class="fas fa-envelope me-2"></i>{{ student.email if student
+              and student.email else '—' }}
+            </li>
+            <li>
+              <i class="fas fa-chalkboard me-2"></i>
+              {% if student and student.class_id %}Lớp hành chính #{{
+              student.class_id }}{% else %}Chưa cập nhật{% endif %}
+            </li>
+          </ul>
+          <div class="mt-3 p-3 bg-light rounded border">
+            <p class="text-muted text-uppercase small mb-1">Tổng quan</p>
+            <div class="d-flex justify-content-between align-items-center">
+              <div>
+                <h4 class="mb-0" id="student-summary-total">0</h4>
+                <small class="text-muted">Lớp tín chỉ</small>
+              </div>
+              <div>
+                <h4 class="mb-0 text-success" id="student-summary-active">0</h4>
+                <small class="text-muted">Phiên đang mở</small>
+              </div>
+            </div>
+          </div>
+          <p class="small text-muted mt-3 mb-0">
+            Dữ liệu được đồng bộ từ hệ thống điểm danh trung tâm.
+          </p>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-8">
+      <div class="card shadow-sm border-0 h-100">
+        <div
+          class="card-header bg-transparent border-bottom-0 d-flex justify-content-between align-items-center"
+        >
+          <div>
+            <h5 class="card-title mb-0">Lớp tín chỉ đã đăng ký</h5>
+            <small class="text-muted"
+              >Danh sách lớp tín chỉ đang hoạt động</small
+            >
+          </div>
+          <button class="btn btn-sm btn-outline-primary" id="student-refresh">
+            <i class="fas fa-rotate-right me-1"></i>Tải lại
+          </button>
+        </div>
+        <div class="card-body">
+          <div id="student-class-loading" class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="text-muted mt-3 mb-0">
+              Đang tải danh sách lớp tín chỉ...
+            </p>
+          </div>
+          <div id="student-class-empty" class="text-center py-5 d-none">
+            <i class="fas fa-inbox fa-2x text-muted mb-3"></i>
+            <p class="text-muted mb-0">
+              Bạn chưa được ghi nhận trong lớp tín chỉ nào.
+            </p>
+          </div>
+          <div id="student-class-list" class="row g-3"></div>
+        </div>
+      </div>
+    </div>
+    {% if current_role == 'student' %}
+    <div class="col-12">
+      <div class="card shadow-sm border-0">
+        <div
+          class="card-header bg-transparent border-bottom-0 d-flex justify-content-between align-items-center"
+        >
+          <div>
+            <h5 class="card-title mb-0">Điểm danh trực tuyến</h5>
+            <small class="text-muted"
+              >Chọn hành động và lớp tín chỉ trước khi bật camera</small
+            >
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="row g-3 align-items-end">
+            <div class="col-md-4">
+              <label class="form-label">Hành động</label>
+              <div
+                class="btn-group w-100"
+                role="group"
+                aria-label="Chọn hành động"
+              >
+                <input
+                  type="radio"
+                  class="btn-check"
+                  name="student-action"
+                  id="student-action-checkin"
+                  value="checkin"
+                  autocomplete="off"
+                  checked
+                />
+                <label
+                  class="btn btn-outline-primary"
+                  for="student-action-checkin"
+                  >Điểm danh</label
+                >
+                <input
+                  type="radio"
+                  class="btn-check"
+                  name="student-action"
+                  id="student-action-checkout"
+                  value="checkout"
+                  autocomplete="off"
+                />
+                <label
+                  class="btn btn-outline-primary"
+                  for="student-action-checkout"
+                  >Checkout</label
+                >
+              </div>
+            </div>
+            <div class="col-md-5">
+              <label for="student-credit-class-select" class="form-label"
+                >Lớp tín chỉ</label
+              >
+              <select class="form-select" id="student-credit-class-select">
+                <option value="">Chọn lớp tín chỉ</option>
+              </select>
+              <div class="form-text text-muted" id="student-session-hint">
+                Vui lòng chọn lớp có phiên đang mở.
+              </div>
+            </div>
+            <div class="col-md-3 text-md-end">
+              <button
+                class="btn btn-primary w-100 mb-2"
+                id="student-start-camera"
+                disabled
+              >
+                <i class="fas fa-play me-1"></i>Bắt đầu
+              </button>
+              <button
+                class="btn btn-outline-secondary w-100 d-none"
+                id="student-stop-camera"
+              >
+                <i class="fas fa-stop me-1"></i>Kết thúc
+              </button>
+            </div>
+          </div>
+          <div
+            class="alert alert-info mt-3 d-none"
+            id="student-session-alert"
+          ></div>
+          <div id="student-camera-slot" class="mt-4"></div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+    <div class="col-12">
+      <div class="card shadow-sm border-0">
+        <div
+          class="card-header bg-transparent border-bottom-0 d-flex justify-content-between align-items-center"
+        >
+          <div>
+            <h5 class="card-title mb-0">Lịch sử điểm danh gần đây</h5>
+            <small class="text-muted">Theo dõi tối đa 10 phiên gần nhất</small>
+          </div>
+          <button
+            type="button"
+            class="btn btn-sm btn-outline-secondary"
+            id="student-history-refresh"
+          >
+            <i class="fas fa-history me-1"></i>Cập nhật
+          </button>
+        </div>
+        <div class="card-body">
+          <div id="student-history-loading" class="text-center py-4">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="text-muted mt-3 mb-0">Đang tải lịch sử điểm danh...</p>
+          </div>
+          <div id="student-history-empty" class="text-center py-4 d-none">
+            <p class="text-muted mb-0">Chưa có lịch sử điểm danh.</p>
+          </div>
+          <div id="student-history-list" class="list-group"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% if current_role == 'student' %}
+<div id="student-camera-wrapper" class="d-none">
+  {% include 'components/camera_feed.html' %}
+</div>
+{% endif %} {% endblock %}

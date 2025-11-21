@@ -31,6 +31,9 @@
     .action-btn {
         margin: 2px;
     }
+    .text-pre-wrap {
+        white-space: pre-wrap;
+    }
 </style>
 {% endblock %}
 
@@ -297,8 +300,348 @@
         </div>
     </div>
 
+    <!-- Class Detail Modal -->
+    <div class="modal fade" id="classDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-eye me-2"></i>Thông tin lớp học
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="classDetailLoading" class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-2 text-muted">Đang tải dữ liệu...</p>
+                    </div>
+                    <div id="classDetailError" class="alert alert-danger d-none"></div>
+                    <div id="classDetailContent" class="d-none">
+                        <div class="mb-3">
+                            <h4 id="detailClassName" class="mb-0"></h4>
+                            <small class="text-muted">Mã lớp: <span id="detailClassCode"></span></small>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <div class="border rounded p-3 h-100">
+                                    <h6 class="text-uppercase text-muted">Thông tin chung</h6>
+                                    <p class="mb-1">Giảng viên: <strong id="detailTeacher"></strong></p>
+                                    <p class="mb-1">Học kỳ: <strong id="detailSemester"></strong></p>
+                                    <p class="mb-1">Năm học: <strong id="detailAcademicYear"></strong></p>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="border rounded p-3 h-100">
+                                    <h6 class="text-uppercase text-muted">Tình trạng</h6>
+                                    <p class="mb-1">Số sinh viên: <strong id="detailStudentCount"></strong></p>
+                                    <p class="mb-1">Ngày tạo: <strong id="detailCreated"></strong></p>
+                                    <p class="mb-1">Cập nhật: <strong id="detailUpdated"></strong></p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-3">
+                            <h6 class="text-uppercase text-muted">Mô tả</h6>
+                            <p id="detailDescription" class="mb-0 text-pre-wrap"></p>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Class Students Modal -->
+    <div class="modal fade" id="classStudentsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-users me-2"></i>Sinh viên trong lớp
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="classStudentsLoading" class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-2 text-muted">Đang tải danh sách sinh viên...</p>
+                    </div>
+                    <div id="classStudentsError" class="alert alert-danger d-none"></div>
+                    <div id="classStudentsEmpty" class="alert alert-info d-none">
+                        <i class="fas fa-info-circle me-2"></i>Chưa có sinh viên nào trong lớp này.
+                    </div>
+                    <div id="classStudentsContent" class="table-responsive d-none">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Mã SV</th>
+                                    <th>Họ tên</th>
+                                    <th>Email</th>
+                                    <th>SĐT</th>
+                                </tr>
+                            </thead>
+                            <tbody id="classStudentsTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <small class="text-muted me-auto" id="classStudentsCounter"></small>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Class Stats Modal -->
+    <div class="modal fade" id="classStatsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-chart-bar me-2"></i>Thống kê lớp học
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="classStatsLoading" class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-2 text-muted">Đang tải thống kê...</p>
+                    </div>
+                    <div id="classStatsError" class="alert alert-danger d-none"></div>
+                    <div id="classStatsContent" class="d-none">
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <div class="border rounded p-3 text-center h-100">
+                                    <p class="text-muted mb-1">Tổng sinh viên</p>
+                                    <h4 id="statsTotalStudents" class="mb-0"></h4>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="border rounded p-3 text-center h-100">
+                                    <p class="text-muted mb-1">Đã điểm danh</p>
+                                    <h4 id="statsAttended" class="mb-0"></h4>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="border rounded p-3 text-center h-100">
+                                    <p class="text-muted mb-1">Tỷ lệ điểm danh</p>
+                                    <h4 id="statsRate" class="mb-0"></h4>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <small class="text-muted">Khoảng thời gian: <span id="statsPeriod"></span></small>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Ngày</th>
+                                        <th>Tổng lượt điểm danh</th>
+                                        <th>Sinh viên</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="statsDailyTable"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        const classState = {
+            cache: new Map(),
+            modals: {
+                detail: null,
+                students: null,
+                stats: null,
+            },
+        };
+
+        function ensureModal(key, elementId) {
+            if (!classState.modals[key]) {
+                const el = document.getElementById(elementId);
+                if (!el || typeof bootstrap === 'undefined') {
+                    console.warn('Modal element missing:', elementId);
+                    return null;
+                }
+                classState.modals[key] = new bootstrap.Modal(el);
+            }
+            return classState.modals[key];
+        }
+
+        function toggleSection(elementId, show) {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+            el.classList.toggle('d-none', !show);
+        }
+
+        function setText(elementId, text) {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+            el.textContent = text ?? '';
+        }
+
+        async function fetchClassDetail(classId, forceReload = false) {
+            if (!forceReload && classState.cache.has(classId)) {
+                return classState.cache.get(classId);
+            }
+            const response = await fetch(`/api/classes/${classId}`);
+            if (!response.ok) {
+                throw new Error('Không thể tải thông tin lớp');
+            }
+            const payload = await response.json();
+            if (!payload.success) {
+                throw new Error(payload.message || 'Không thể tải thông tin lớp');
+            }
+            classState.cache.set(classId, payload.data);
+            return payload.data;
+        }
+
+        async function viewClass(classId) {
+            const modal = ensureModal('detail', 'classDetailModal');
+            if (!modal) return;
+            toggleSection('classDetailLoading', true);
+            toggleSection('classDetailContent', false);
+            toggleSection('classDetailError', false);
+            modal.show();
+            try {
+                const data = await fetchClassDetail(classId);
+                setText('detailClassName', data.class_name || 'Không tên');
+                setText('detailClassCode', data.class_code || '-');
+                setText('detailTeacher', data.teacher_name || 'Chưa cập nhật');
+                setText('detailSemester', data.semester || 'N/A');
+                setText('detailAcademicYear', data.academic_year || 'N/A');
+                setText('detailStudentCount', data.student_count ?? (data.students_total || 0));
+                setText('detailCreated', data.created_at || '—');
+                setText('detailUpdated', data.updated_at || '—');
+                document.getElementById('detailDescription').textContent = data.description || 'Chưa có mô tả.';
+                toggleSection('classDetailLoading', false);
+                toggleSection('classDetailContent', true);
+            } catch (error) {
+                console.error(error);
+                toggleSection('classDetailLoading', false);
+                toggleSection('classDetailContent', false);
+                const errEl = document.getElementById('classDetailError');
+                if (errEl) {
+                    errEl.textContent = error.message;
+                }
+                toggleSection('classDetailError', true);
+            }
+        }
+
+        function renderClassStudentsTable(students) {
+            const tbody = document.getElementById('classStudentsTable');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            students.forEach(student => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><code>${student.student_id || ''}</code></td>
+                    <td>${student.full_name || ''}</td>
+                    <td>${student.email || '-'}</td>
+                    <td>${student.phone || '-'}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function showClassStudents(classId) {
+            const modal = ensureModal('students', 'classStudentsModal');
+            if (!modal) return;
+            toggleSection('classStudentsLoading', true);
+            toggleSection('classStudentsContent', false);
+            toggleSection('classStudentsEmpty', false);
+            toggleSection('classStudentsError', false);
+            modal.show();
+            try {
+                const response = await fetch(`/api/classes/${classId}/students`);
+                if (!response.ok) {
+                    throw new Error('Không thể tải danh sách sinh viên');
+                }
+                const payload = await response.json();
+                if (!payload.success) {
+                    throw new Error(payload.message || 'Không thể tải danh sách sinh viên');
+                }
+                const students = payload.data || [];
+                setText('classStudentsCounter', `${students.length} sinh viên`);
+                if (!students.length) {
+                    toggleSection('classStudentsLoading', false);
+                    toggleSection('classStudentsEmpty', true);
+                    return;
+                }
+                renderClassStudentsTable(students);
+                toggleSection('classStudentsLoading', false);
+                toggleSection('classStudentsContent', true);
+            } catch (error) {
+                console.error(error);
+                const errEl = document.getElementById('classStudentsError');
+                if (errEl) {
+                    errEl.textContent = error.message;
+                }
+                toggleSection('classStudentsLoading', false);
+                toggleSection('classStudentsError', true);
+            }
+        }
+
+        function renderStatsTable(dailyStats) {
+            const tbody = document.getElementById('statsDailyTable');
+            if (!tbody) return;
+            if (!dailyStats || !dailyStats.length) {
+                tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">Chưa có dữ liệu điểm danh</td></tr>';
+                return;
+            }
+            tbody.innerHTML = dailyStats.map(item => `
+                <tr>
+                    <td>${item.attendance_date}</td>
+                    <td>${item.total_attendance}</td>
+                    <td>${item.unique_students}</td>
+                </tr>
+            `).join('');
+        }
+
+        async function showClassStats(classId) {
+            const modal = ensureModal('stats', 'classStatsModal');
+            if (!modal) return;
+            toggleSection('classStatsLoading', true);
+            toggleSection('classStatsContent', false);
+            toggleSection('classStatsError', false);
+            modal.show();
+            try {
+                const response = await fetch(`/api/classes/${classId}/stats`);
+                if (!response.ok) {
+                    throw new Error('Không thể tải thống kê lớp học');
+                }
+                const payload = await response.json();
+                if (!payload.success) {
+                    throw new Error(payload.message || 'Không thể tải thống kê lớp học');
+                }
+                const stats = payload.stats || {};
+                setText('statsTotalStudents', stats.total_students ?? 0);
+                setText('statsAttended', stats.attended_students ?? 0);
+                setText('statsRate', `${stats.attendance_rate ?? 0}%`);
+                setText('statsPeriod', stats.period || 'Hôm nay');
+                renderStatsTable(stats.daily_stats || []);
+                toggleSection('classStatsLoading', false);
+                toggleSection('classStatsContent', true);
+            } catch (error) {
+                console.error(error);
+                const errEl = document.getElementById('classStatsError');
+                if (errEl) {
+                    errEl.textContent = error.message;
+                }
+                toggleSection('classStatsLoading', false);
+                toggleSection('classStatsError', true);
+            }
+        }
+
         // Add Class Form
         document.getElementById('addClassForm').addEventListener('submit', function(e) {
             e.preventDefault();
@@ -365,13 +708,13 @@
                 
                 switch(action) {
                     case 'view':
-                        window.location.href = `/classes/${classId}`;
+                        viewClass(classId);
                         break;
                     case 'students':
-                        window.location.href = `/classes/${classId}/students`;
+                        showClassStudents(classId);
                         break;
                     case 'stats':
-                        window.location.href = `/classes/${classId}/stats`;
+                        showClassStats(classId);
                         break;
                     case 'edit':
                         editClass(classId);

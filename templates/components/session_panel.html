@@ -1,0 +1,57 @@
+<div class="card shadow-sm mb-4" id="credit-session-card">
+  <div
+    class="card-header bg-dark text-white d-flex justify-content-between align-items-center"
+  >
+    <h5 class="card-title mb-0">
+      <i class="fas fa-clipboard-list me-2"></i>Phiên điểm danh lớp tín chỉ
+    </h5>
+    <span class="badge bg-secondary" id="session-status-pill">Đang đóng</span>
+  </div>
+  <div class="card-body">
+    <div
+      id="session-alert"
+      class="alert alert-danger d-none"
+      role="alert"
+    ></div>
+
+    <div id="session-form-container">
+      <div class="mb-3">
+        <label for="credit-class-select" class="form-label"
+          >Chọn lớp tín chỉ</label
+        >
+        <select id="credit-class-select" class="form-select">
+          <option value="">-- Đang tải danh sách lớp --</option>
+        </select>
+      </div>
+      <button id="open-session-btn" class="btn btn-primary w-100">
+        <i class="fas fa-play-circle me-2"></i>Mở phiên trong 15 phút
+      </button>
+      <p class="text-muted small mt-2 mb-0">
+        Phiên điểm danh sẽ tự động đóng sau khi hết thời gian giới hạn.
+      </p>
+    </div>
+
+    <div id="active-session-container" class="session-status-card d-none">
+      <div class="d-flex justify-content-between align-items-start mb-3">
+        <div>
+          <div class="session-class-name" id="session-class-name">---</div>
+          <small class="text-muted" id="session-class-code">--</small>
+        </div>
+        <span class="countdown-pill" id="session-countdown">--:--</span>
+      </div>
+      <ul class="session-meta list-unstyled mb-3">
+        <li>
+          <i class="fas fa-door-open me-2 text-success"></i>
+          Mở lúc <span id="session-opened-at">--</span>
+        </li>
+        <li>
+          <i class="fas fa-hourglass-end me-2 text-warning"></i>
+          Đóng lúc <span id="session-deadline">--</span>
+        </li>
+      </ul>
+      <button id="close-session-btn" class="btn btn-outline-danger w-100">
+        <i class="fas fa-stop-circle me-2"></i>Đóng phiên ngay
+      </button>
+    </div>
+  </div>
+</div>

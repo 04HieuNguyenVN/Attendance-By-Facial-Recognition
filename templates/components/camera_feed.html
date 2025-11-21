@@ -1,0 +1,35 @@
+{% if current_role == 'student' %}
+<div class="card shadow-sm mb-4" data-camera-card="true">
+  <div
+    class="card-header bg-primary text-white d-flex justify-content-between align-items-center"
+  >
+    <h5 class="card-title mb-0"><i class="fas fa-video me-2"></i>Camera</h5>
+    <div class="d-flex align-items-center">
+      <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="toggle-camera" />
+        <label
+          class="form-check-label"
+          for="toggle-camera"
+          id="camera-switch-label"
+          >Tắt</label
+        >
+      </div>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <div class="video-container">
+      <img
+        id="video-stream"
+        data-feed-base="/video_feed"
+        alt="Video feed"
+        class="img-fluid d-none"
+      />
+      <div class="video-overlay">
+        <div class="recognition-status" id="recognition-status">
+          <i class="fas fa-eye me-1"></i>Đang nhận diện...
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}

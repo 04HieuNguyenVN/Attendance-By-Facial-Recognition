@@ -1,130 +1,75 @@
-<!DOCTYPE html>
-<html lang="vi">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Hệ thống điểm danh lớp học (External)</title>
-    <style>
-      body {
-        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-        margin: 0;
-        padding: 0;
-        background-color: #f5f9ff;
-      }
+{% extends "base.html" %}
 
-      .container {
-        max-width: 1100px;
-        margin: 40px auto;
-        background-color: #fff;
-        padding: 30px;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-        border-radius: 12px;
-      }
+{% block title %}Báo cáo điểm danh (External){% endblock %}
 
-      h1 {
-        text-align: center;
-        color: #2c3e50;
-      }
+{% block content %}
+<div class="container-fluid">
+    {% set header_context = {
+        'page_title': 'Báo cáo điểm danh (External)',
+        'page_subtitle': 'Xem lại lịch sử điểm danh từ hệ thống CSV bên ngoài.',
+        'page_icon': 'fas fa-file-csv'
+    } %}
+    {% include 'components/page_header.html' with header_context %}
 
-      form {
-        display: flex;
-        justify-content: center;
-        gap: 20px;
-        margin-bottom: 25px;
-        flex-wrap: wrap;
-      }
-
-      input[type="text"],
-      input[type="date"] {
-        padding: 10px;
-        border: 1px solid #ccc;
-        border-radius: 8px;
-        font-size: 16px;
-        width: 200px;
-      }
-
-      input[type="submit"] {
-        padding: 10px 20px;
-        background-color: #3498db;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        font-size: 16px;
-        cursor: pointer;
-      }
-
-      input[type="submit"]:hover {
-        background-color: #2980b9;
-      }
-
-      table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 10px;
-      }
-
-      th,
-      td {
-        padding: 12px;
-        border: 1px solid #ccc;
-        text-align: center;
-        font-size: 15px;
-      }
-
-      th {
-        background-color: #ecf0f1;
-        color: #2c3e50;
-      }
-
-      tr:nth-child(even) {
-        background-color: #f9fcff;
-      }
-
-      .footer {
-        margin-top: 20px;
-        text-align: right;
-        color: #555;
-        font-size: 14px;
-      }
-
-      .highlight {
-        color: #e74c3c;
-        font-weight: bold;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <h1>📚 Hệ thống điểm danh lớp học (External)</h1>
-
-      <form method="get">
-        <input
-          type="text"
-          name="name"
-          placeholder="🔍 Nhập tên học viên..."
-          value="{{ search_name }}"
-        />
-        <input type="date" name="date" value="{{ date_filter }}" />
-        <input type="submit" value="Lọc kết quả" />
-      </form>
-
-      <table>
-        <tr>
-          {% for h in headers %}
-          <th>{{ h }}</th>
-          {% endfor %}
-        </tr>
-        {% for row in data %}
-        <tr>
-          {% for item in row %}
-          <td>{{ item }}</td>
-          {% endfor %}
-        </tr>
-        {% endfor %}
-      </table>
-
-      <div class="footer">
-        📅 Tổng số bản ghi: <span class="highlight">{{ data|length }}</span>
-      </div>
+    <!-- Filter Form -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <h5 class="card-title"><i class="fas fa-filter me-2"></i>Lọc kết quả</h5>
+            <form method="get" class="row g-3 align-items-end">
+                <div class="col-md-5">
+                    <label for="name" class="form-label">Tên học viên</label>
+                    <input type="text" class="form-control" id="name" name="name" placeholder="Nhập tên để tìm kiếm..." value="{{ search_name }}">
+                </div>
+                <div class="col-md-5">
+                    <label for="date" class="form-label">Ngày</label>
+                    <input type="date" class="form-control" id="date" name="date" value="{{ date_filter }}">
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100"><i class="fas fa-search me-2"></i>Lọc</button>
+                </div>
+            </form>
+        </div>
     </div>
-  </body>
-</html>
+
+    <!-- Attendance Table -->
+    <div class="card shadow-sm">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="fas fa-list-alt me-2"></i>Kết quả điểm danh</h5>
+        </div>
+        <div class="card-body p-0">
+            {% if data %}
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                {% for h in headers %}
+                                    <th scope="col">{{ h }}</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in data %}
+                            <tr>
+                                {% for item in row %}
+                                    <td>{{ item }}</td>
+                                {% endfor %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                {% set empty_state_context = {
+                    'empty_icon': 'fas fa-box-open',
+                    'empty_title': 'Không tìm thấy dữ liệu',
+                    'empty_message': 'Không có bản ghi điểm danh nào phù hợp với tiêu chí tìm kiếm của bạn, hoặc thư mục logs không có dữ liệu.'
+                } %}
+                {% include 'components/empty_state.html' with empty_state_context %}
+            {% endif %}
+        </div>
+        <div class="card-footer text-muted">
+            Tổng số bản ghi: <span class="fw-bold">{{ data|length }}</span>
+        </div>
+    </div>
+</div>
+{% endblock %}

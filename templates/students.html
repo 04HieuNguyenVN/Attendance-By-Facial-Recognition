@@ -50,9 +50,6 @@
             <div class="col-md-3">
                 <select class="form-select" id="classFilter" aria-label="Lọc theo lớp">
                     <option value="">Tất cả lớp</option>
-                    <option value="CNTT">CNTT</option>
-                    <option value="KT">Kế toán</option>
-                    <option value="QTKD">Quản trị kinh doanh</option>
                 </select>
             </div>
             <div class="col-md-3">
@@ -137,10 +134,6 @@
                                 <label for="className" class="form-label">Lớp</label>
                                 <select class="form-select" id="className" name="class_name">
                                     <option value="">Chọn lớp</option>
-                                    <option value="CNTT">CNTT</option>
-                                    <option value="KT">Kế toán</option>
-                                    <option value="QTKD">Quản trị kinh doanh</option>
-                                    <option value="NN">Ngoại ngữ</option>
                                 </select>
                             </div>
                             <div class="col-md-6 mb-3">
@@ -201,10 +194,6 @@
                                 <label for="editClassName" class="form-label">Lớp</label>
                                 <select class="form-select" id="editClassName" name="class_name">
                                     <option value="">Chọn lớp</option>
-                                    <option value="CNTT">CNTT</option>
-                                    <option value="KT">Kế toán</option>
-                                    <option value="QTKD">Quản trị kinh doanh</option>
-                                    <option value="NN">Ngoại ngữ</option>
                                 </select>
                             </div>
                         </div>
@@ -269,11 +258,14 @@
                 this.students = [];
                 this.filteredStudents = [];
                 this.currentStudentId = null;
+                this.classes = [];
+                this.classesPromise = null;
                 this.init();
             }
 
             init() {
                 this.setupEventListeners();
+                this.loadClasses();
                 this.loadStudents();
             }
 
@@ -323,6 +315,81 @@
                 } catch (error) {
                     console.error('Error loading students:', error);
                     this.showNotification('Lỗi khi tải danh sách sinh viên', 'error');
+                }
+            }
+
+            async loadClasses(forceReload = false) {
+                if (!forceReload && this.classes.length) {
+                    return this.classes;
+                }
+                if (!forceReload && this.classesPromise) {
+                    return this.classesPromise;
+                }
+
+                this.classesPromise = (async () => {
+                    try {
+                        const response = await fetch('/api/classes');
+                        if (!response.ok) throw new Error('Failed to load classes');
+                        const result = await response.json();
+                        this.classes = result.success ? result.data || [] : [];
+                    } catch (error) {
+                        console.error('Error loading classes:', error);
+                        this.classes = [];
+                    }
+                    this.populateClassSelects();
+                    return this.classes;
+                })();
+
+                const classes = await this.classesPromise;
+                this.classesPromise = null;
+                return classes;
+            }
+
+            populateClassSelects() {
+                this.populateSelect(
+                    document.getElementById('classFilter'),
+                    this.classes,
+                    { includeAll: true, label: 'Tất cả lớp', showCounts: true }
+                );
+                this.populateSelect(
+                    document.getElementById('className'),
+                    this.classes,
+                    { label: 'Chọn lớp' }
+                );
+                this.populateSelect(
+                    document.getElementById('editClassName'),
+                    this.classes,
+                    { label: 'Chọn lớp' }
+                );
+            }
+
+            populateSelect(selectEl, classes, options = {}) {
+                if (!selectEl) return;
+                const { label = 'Chọn lớp', showCounts = false } = options;
+                const previousValue = selectEl.value;
+                selectEl.innerHTML = '';
+
+                const defaultOption = document.createElement('option');
+                defaultOption.value = '';
+                defaultOption.textContent = label;
+                selectEl.appendChild(defaultOption);
+
+                classes.forEach((cls) => {
+                    const option = document.createElement('option');
+                    option.value = cls.class_name || cls.class_code || '';
+                    const pieces = [cls.class_name || cls.class_code || 'Không tên'];
+                    if (cls.class_code && cls.class_code !== cls.class_name) {
+                        pieces.push(cls.class_code);
+                    }
+                    if (showCounts && typeof cls.student_count === 'number') {
+                        pieces.push(`${cls.student_count} SV`);
+                    }
+                    option.textContent = pieces.join(' • ');
+                    selectEl.appendChild(option);
+                });
+
+                if (previousValue) {
+                    selectEl.value = previousValue;
                 }
             }
 
@@ -411,15 +478,23 @@
                         body: formData
                     });
 
-                    if (!response.ok) {
-                        const error = await response.text();
-                        throw new Error(error);
+                    let result = null;
+                    try {
+                        result = await response.json();
+                    } catch (parseError) {
+                        result = null;
+                    }
+
+                    if (!response.ok || (result && result.success === false)) {
+                        const message = (result && (result.message || result.error)) || 'Không thể thêm sinh viên';
+                        throw new Error(message);
                     }
 
                     this.showNotification('Thêm sinh viên thành công!', 'success');
                     bootstrap.Modal.getInstance(document.getElementById('addStudentModal')).hide();
                     form.reset();
-                    this.loadStudents();
+                    await this.loadStudents();
+                    await this.loadClasses(true);
                 } catch (error) {
                     console.error('Error adding student:', error);
                     this.showNotification('Lỗi khi thêm sinh viên: ' + error.message, 'error');
@@ -429,6 +504,8 @@
             async editStudent(studentId) {
                 const student = this.students.find(s => s.student_id === studentId);
                 if (!student) return;
+
+                await this.loadClasses();
 
                 // Populate edit form
                 document.getElementById('editStudentId').value = student.student_id;
@@ -446,6 +523,10 @@
             async updateStudent() {
                 const form = document.getElementById('editStudentForm');
                 const formData = new FormData(form);
+                const isActiveCheckbox = document.getElementById('editIsActive');
+                if (isActiveCheckbox) {
+                    formData.set('is_active', isActiveCheckbox.checked ? '1' : '0');
+                }
                 const studentId = document.getElementById('editStudentId').value;
 
                 try {
@@ -454,14 +535,22 @@
                         body: formData
                     });
 
-                    if (!response.ok) {
-                        const error = await response.text();
-                        throw new Error(error);
+                    let result = null;
+                    try {
+                        result = await response.json();
+                    } catch (parseError) {
+                        result = null;
+                    }
+
+                    if (!response.ok || (result && result.success === false)) {
+                        const message = (result && (result.message || result.error)) || 'Không thể cập nhật sinh viên';
+                        throw new Error(message);
                     }
 
                     this.showNotification('Cập nhật sinh viên thành công!', 'success');
                     bootstrap.Modal.getInstance(document.getElementById('editStudentModal')).hide();
-                    this.loadStudents();
+                    await this.loadStudents();
+                    await this.loadClasses(true);
                 } catch (error) {
                     console.error('Error updating student:', error);
                     this.showNotification('Lỗi khi cập nhật sinh viên: ' + error.message, 'error');
@@ -484,14 +573,22 @@
                         method: 'DELETE'
                     });
 
-                    if (!response.ok) {
-                        const error = await response.text();
-                        throw new Error(error);
+                    let result = null;
+                    try {
+                        result = await response.json();
+                    } catch (parseError) {
+                        result = null;
+                    }
+
+                    if (!response.ok || (result && result.success === false)) {
+                        const message = (result && (result.message || result.error)) || 'Không thể xóa sinh viên';
+                        throw new Error(message);
                     }
 
                     this.showNotification('Xóa sinh viên thành công!', 'success');
                     bootstrap.Modal.getInstance(document.getElementById('deleteStudentModal')).hide();
-                    this.loadStudents();
+                        await this.loadStudents();
+                        await this.loadClasses(true); // Refresh classes after deletion
                 } catch (error) {
                     console.error('Error deleting student:', error);
                     this.showNotification('Lỗi khi xóa sinh viên: ' + error.message, 'error');

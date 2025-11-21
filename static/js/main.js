@@ -4,724 +4,2185 @@
  */
 
 // ========================================
-// GLOBAL VARIABLES
+// DOMContentLoaded
 // ========================================
-const App = {
-  config: {
-    apiBaseUrl: "/api",
-    refreshInterval: 5000,
-    animationDuration: 300,
-  },
-
-  state: {
-    isLoading: false,
-    currentUser: null,
-    notifications: [],
-  },
-
-  elements: {
-    loadingSpinner: null,
-    notificationContainer: null,
-  },
-};
-
-// ========================================
-// UTILITY FUNCTIONS
-// ========================================
-const Utils = {
-  /**
-   * Format date to Vietnamese format
-   */
-  formatDate(date) {
-    if (!date) return "";
-    const d = new Date(date);
-    return d.toLocaleDateString("vi-VN", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  },
-
-  /**
-   * Format time ago
-   */
-  timeAgo(date) {
-    if (!date) return "";
-    const now = new Date();
-    const past = new Date(date);
-    const diffInSeconds = Math.floor((now - past) / 1000);
-
-    if (diffInSeconds < 60) return "Vừa xong";
-    if (diffInSeconds < 3600)
-      return `${Math.floor(diffInSeconds / 60)} phút trước`;
-    if (diffInSeconds < 86400)
-      return `${Math.floor(diffInSeconds / 3600)} giờ trước`;
-    return `${Math.floor(diffInSeconds / 86400)} ngày trước`;
-  },
-
-  /**
-   * Show loading spinner
-   */
-  showLoading(element = null) {
-    App.state.isLoading = true;
-    if (element) {
-      element.innerHTML =
-        '<div class="loading-container"><div class="spinner-custom"></div></div>';
-    }
-  },
-
-  /**
-   * Hide loading spinner
-   */
-  hideLoading() {
-    App.state.isLoading = false;
-  },
-
-  /**
-   * Show notification
-   */
-  showNotification(message, type = "info", duration = 5000) {
-    const notification = {
-      id: Date.now(),
-      message,
-      type,
-      duration,
-    };
-
-    App.state.notifications.push(notification);
-    this.renderNotifications();
-
-    // Auto remove after duration
-    setTimeout(() => {
-      this.removeNotification(notification.id);
-    }, duration);
-  },
-
-  /**
-   * Remove notification
-   */
-  removeNotification(id) {
-    App.state.notifications = App.state.notifications.filter(
-      (n) => n.id !== id
-    );
-    this.renderNotifications();
-  },
-
-  /**
-   * Render notifications
-   */
-  renderNotifications() {
-    const container = document.getElementById("notification-container");
-    if (!container) return;
-
-    container.innerHTML = App.state.notifications
-      .map(
-        (notification) => `
-            <div class="alert alert-${
-              notification.type
-            }-custom alert-dismissible fade show" role="alert">
-                <i class="fas fa-${this.getNotificationIcon(
-                  notification.type
-                )} me-2"></i>
-                ${notification.message}
-                <button type="button" class="btn-close" onclick="Utils.removeNotification(${
-                  notification.id
-                })"></button>
-            </div>
-        `
-      )
-      .join("");
-  },
-
-  /**
-   * Get notification icon
-   */
-  getNotificationIcon(type) {
-    const icons = {
-      success: "check-circle",
-      danger: "exclamation-triangle",
-      warning: "exclamation-circle",
-      info: "info-circle",
-    };
-    return icons[type] || "info-circle";
-  },
-
-  /**
-   * Debounce function
-   */
-  debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-      const later = () => {
-        clearTimeout(timeout);
-        func(...args);
-      };
-      clearTimeout(timeout);
-      timeout = setTimeout(later, wait);
-    };
-  },
-
-  /**
-   * Throttle function
-   */
-  throttle(func, limit) {
-    let inThrottle;
-    return function () {
-      const args = arguments;
-      const context = this;
-      if (!inThrottle) {
-        func.apply(context, args);
-        inThrottle = true;
-        setTimeout(() => (inThrottle = false), limit);
-      }
-    };
-  },
-};
-
-// ========================================
-// API FUNCTIONS
-// ========================================
-const API = {
-  /**
-   * Make API request
-   */
-  async request(url, options = {}) {
-    const defaultOptions = {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    };
-
-    const config = { ...defaultOptions, ...options };
-
-    try {
-      Utils.showLoading();
-      const response = await fetch(url, config);
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Có lỗi xảy ra");
-      }
-
-      return data;
-    } catch (error) {
-      console.error("API Error:", error);
-      Utils.showNotification(error.message, "danger");
-      throw error;
-    } finally {
-      Utils.hideLoading();
-    }
-  },
-
-  /**
-   * GET request
-   */
-  async get(url) {
-    return this.request(url, { method: "GET" });
-  },
-
-  /**
-   * POST request
-   */
-  async post(url, data) {
-    return this.request(url, {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
-  },
-
-  /**
-   * PUT request
-   */
-  async put(url, data) {
-    return this.request(url, {
-      method: "PUT",
-      body: JSON.stringify(data),
-    });
-  },
-
-  /**
-   * DELETE request
-   */
-  async delete(url) {
-    return this.request(url, { method: "DELETE" });
-  },
-
-  /**
-   * Upload file
-   */
-  async upload(url, formData) {
-    return this.request(url, {
-      method: "POST",
-      body: formData,
-      headers: {}, // Let browser set Content-Type for FormData
-    });
-  },
-};
-
-// ========================================
-// FORM HANDLING
-// ========================================
-const FormHandler = {
-  /**
-   * Initialize form validation
-   */
-  init() {
-    const forms = document.querySelectorAll(".needs-validation");
-    forms.forEach((form) => {
-      form.addEventListener("submit", this.handleSubmit.bind(this));
-    });
-  },
-
-  /**
-   * Handle form submission
-   */
-  handleSubmit(event) {
-    const form = event.target;
-    if (!form.checkValidity()) {
-      event.preventDefault();
-      event.stopPropagation();
-    }
-    form.classList.add("was-validated");
-  },
-
-  /**
-   * Reset form
-   */
-  reset(form) {
-    form.reset();
-    form.classList.remove("was-validated");
-    // Clear custom validation
-    const inputs = form.querySelectorAll(".form-control-custom");
-    inputs.forEach((input) => {
-      input.classList.remove("is-valid", "is-invalid");
-    });
-  },
-
-  /**
-   * Validate field
-   */
-  validateField(field) {
-    const value = field.value.trim();
-    const type = field.type;
-    const required = field.hasAttribute("required");
-
-    let isValid = true;
-    let message = "";
-
-    if (required && !value) {
-      isValid = false;
-      message = "Trường này là bắt buộc";
-    } else if (type === "email" && value && !this.isValidEmail(value)) {
-      isValid = false;
-      message = "Email không hợp lệ";
-    } else if (type === "tel" && value && !this.isValidPhone(value)) {
-      isValid = false;
-      message = "Số điện thoại không hợp lệ";
-    }
-
-    this.setFieldValidation(field, isValid, message);
-    return isValid;
-  },
-
-  /**
-   * Check if email is valid
-   */
-  isValidEmail(email) {
-    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return re.test(email);
-  },
-
-  /**
-   * Check if phone is valid
-   */
-  isValidPhone(phone) {
-    const re = /^[0-9]{10,11}$/;
-    return re.test(phone.replace(/\s/g, ""));
-  },
-
-  /**
-   * Set field validation state
-   */
-  setFieldValidation(field, isValid, message) {
-    field.classList.remove("is-valid", "is-invalid");
-    field.classList.add(isValid ? "is-valid" : "is-invalid");
-
-    // Remove existing feedback
-    const existingFeedback =
-      field.parentNode.querySelector(".invalid-feedback");
-    if (existingFeedback) {
-      existingFeedback.remove();
-    }
-
-    // Add feedback if invalid
-    if (!isValid && message) {
-      const feedback = document.createElement("div");
-      feedback.className = "invalid-feedback";
-      feedback.textContent = message;
-      field.parentNode.appendChild(feedback);
-    }
-  },
-};
-
-// ========================================
-// MODAL HANDLING
-// ========================================
-const ModalHandler = {
-  /**
-   * Show modal
-   */
-  show(modalId) {
-    const modal = new bootstrap.Modal(document.getElementById(modalId));
-    modal.show();
-  },
-
-  /**
-   * Hide modal
-   */
-  hide(modalId) {
-    const modal = bootstrap.Modal.getInstance(document.getElementById(modalId));
-    if (modal) {
-      modal.hide();
-    }
-  },
-
-  /**
-   * Initialize modal events
-   */
-  init() {
-    // Auto-hide modals after form submission
-    document.addEventListener("submit", (e) => {
-      const form = e.target;
-      if (form.closest(".modal")) {
-        setTimeout(() => {
-          const modal = form.closest(".modal");
-          const modalInstance = bootstrap.Modal.getInstance(modal);
-          if (modalInstance) {
-            modalInstance.hide();
-          }
-        }, 1000);
-      }
-    });
-  },
-};
-
-// ========================================
-// TABLE HANDLING
-// ========================================
-const TableHandler = {
-  /**
-   * Initialize data tables
-   */
-  init() {
-    const tables = document.querySelectorAll(".table-custom");
-    tables.forEach((table) => {
-      this.addSorting(table);
-      this.addFiltering(table);
-    });
-  },
-
-  /**
-   * Add sorting to table
-   */
-  addSorting(table) {
-    const headers = table.querySelectorAll("th[data-sort]");
-    headers.forEach((header) => {
-      header.style.cursor = "pointer";
-      header.addEventListener("click", () => {
-        this.sortTable(table, header.dataset.sort);
-      });
-    });
-  },
-
-  /**
-   * Sort table
-   */
-  sortTable(table, column) {
-    const tbody = table.querySelector("tbody");
-    const rows = Array.from(tbody.querySelectorAll("tr"));
-    const isAscending = table.dataset.sortDirection !== "asc";
-
-    rows.sort((a, b) => {
-      const aVal =
-        a.querySelector(`[data-sort-value="${column}"]`)?.textContent || "";
-      const bVal =
-        b.querySelector(`[data-sort-value="${column}"]`)?.textContent || "";
-
-      if (isAscending) {
-        return aVal.localeCompare(bVal);
-      } else {
-        return bVal.localeCompare(aVal);
-      }
-    });
-
-    rows.forEach((row) => tbody.appendChild(row));
-    table.dataset.sortDirection = isAscending ? "asc" : "desc";
-  },
-
-  /**
-   * Add filtering to table
-   */
-  addFiltering(table) {
-    const filterInput = table.parentNode.querySelector(".table-filter");
-    if (filterInput) {
-      filterInput.addEventListener(
-        "input",
-        Utils.debounce((e) => {
-          this.filterTable(table, e.target.value);
-        }, 300)
-      );
-    }
-  },
-
-  /**
-   * Filter table
-   */
-  filterTable(table, searchTerm) {
-    const tbody = table.querySelector("tbody");
-    const rows = tbody.querySelectorAll("tr");
-
-    rows.forEach((row) => {
-      const text = row.textContent.toLowerCase();
-      const matches = text.includes(searchTerm.toLowerCase());
-      row.style.display = matches ? "" : "none";
-    });
-  },
-};
-
-// ========================================
-// INITIALIZATION
-// ========================================
-document.addEventListener("DOMContentLoaded", function () {
+document.addEventListener("DOMContentLoaded", () => {
   // Initialize all handlers
-  FormHandler.init();
-  ModalHandler.init();
-  TableHandler.init();
-
-  // Initialize notification container
-  App.elements.notificationContainer = document.getElementById(
-    "notification-container"
-  );
-
-  // Auto-refresh data
-  if (App.config.refreshInterval > 0) {
-    setInterval(() => {
-      // Refresh attendance data if on main page
-      if (window.location.pathname === "/") {
-        refreshAttendanceData();
-      }
-    }, App.config.refreshInterval);
-  }
-
-  console.log("Hệ thống điểm danh đã khởi tạo thành công");
+  const App = new MainApp();
+  App.init();
 });
 
 // ========================================
-// GLOBAL FUNCTIONS (for HTML onclick)
+// MAIN APP CLASS
 // ========================================
-window.refreshAttendanceData = async function () {
-  try {
-    const response = await API.get("/api/attendance/today");
-    if (response.success) {
-      updateAttendanceList(response.data);
-    }
-  } catch (error) {
-    console.error("Error refreshing attendance data:", error);
-  }
-};
-
-window.updateAttendanceList = function (attendanceData) {
-  const container = document.getElementById("attendance-list");
-  if (!container) return;
-
-  if (attendanceData.length === 0) {
-    container.innerHTML =
-      '<div class="text-center text-muted py-4">Chưa có sinh viên nào điểm danh</div>';
-    return;
-  }
-
-  container.innerHTML = attendanceData
-    .map(
-      (item) => `
-        <div class="attendance-item-custom">
-            <div class="student-info">
-                <div>
-                    <div class="student-name">${item.name}</div>
-                    <div class="attendance-time">${Utils.timeAgo(
-                      item.timestamp
-                    )}</div>
-                </div>
-                <div class="student-id">${item.student_id || "N/A"}</div>
-            </div>
-        </div>
-    `
-    )
-    .join("");
-};
-
-// Export for module usage
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = { App, Utils, API, FormHandler, ModalHandler, TableHandler };
-}
-
-// ========================================
-// CAMERA CONTROLS
-// ========================================
-class CameraControls {
+class MainApp {
   constructor() {
-    this.isEnabled = true;
-    this.isCapturing = false;
-    this.statusCheckInterval = null;
-
-    this.init();
+    this.sse = null;
+    this.webcamStream = null;
+    this.capturedImageData = null;
+    this.refreshIntervalId = null;
+    this.detailModal = null;
+    this.detailModalEl = null;
+    this.detailElements = {};
+    this.classOptions = [];
+    this.classOptionsPromise = null;
+    this.creditClassOptions = [];
+    this.creditClassPromise = null;
+    this.sessionElements = {};
+    this.activeSession = null;
+    this.sessionCountdownInterval = null;
+    this.sessionPollInterval = null;
+    this.teacherPortalEl = null;
+    this.teacherClassList = null;
+    this.teacherClassLoading = null;
+    this.teacherClassEmpty = null;
+    this.teacherClassCount = null;
+    this.teacherClassesIndex = {};
+    this.teacherClassModal = null;
+    this.studentPortalEl = null;
+    this.studentClassList = null;
+    this.studentSummaryTotalEl = null;
+    this.studentSummaryActiveEl = null;
+    this.studentClassLoading = null;
+    this.studentClassEmpty = null;
+    this.studentHistoryList = null;
+    this.studentHistoryLoading = null;
+    this.studentHistoryEmpty = null;
+    this.studentClassSelectEl = null;
+    this.studentActionInputs = [];
+    this.studentStartBtn = null;
+    this.studentStopBtn = null;
+    this.studentSessionAlert = null;
+    this.studentSessionHint = null;
+    this.studentCameraSlot = null;
+    this.studentCameraWrapper = null;
+    this.studentVideoEl = null;
+    this.studentSelectedClassId = "";
+    this.studentCurrentAction = "checkin";
+    this.studentSessionState = null;
+    this.studentCameraActive = false;
   }
 
   init() {
-    // Bind event listeners
-    const toggleBtn = document.getElementById("toggle-camera");
-
-    if (toggleBtn) {
-      toggleBtn.addEventListener("click", () => this.toggleCamera());
-    }
-
-    // Start status checking
-    this.startStatusChecking();
+    this.initUI();
+    this.initSSE();
+    this.initCamera();
+    this.initQuickRegister();
+    this.initQuickActions();
+    this.initDetailModal();
+    this.bindDetailHandlers();
+    this.initAttendanceSessionPanel();
+    this.initTeacherPortal();
+    this.initStudentPortal();
+    this.startDataRefresh();
+    console.log("Hệ thống điểm danh đã khởi tạo thành công");
   }
 
-  async toggleCamera() {
-    try {
-      const response = await fetch("/api/camera/toggle", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ enabled: !this.isEnabled }),
-      });
+  initUI() {
+    // Add any general UI initializations here
+  }
 
-      const data = await response.json();
+  // ========================================
+  // SERVER-SENT EVENTS (SSE)
+  // ========================================
+  initSSE() {
+    this.sse = new EventSource("/api/events/stream");
 
-      if (data.success) {
-        this.isEnabled = data.enabled;
-        this.updateUI();
-      } else {
-        this.showError("Lỗi: " + data.error);
+    this.sse.onopen = () => console.log("SSE connection established");
+
+    this.sse.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (
+          !data ||
+          !data.type ||
+          data.type === "heartbeat" ||
+          data.type === "connected"
+        ) {
+          return;
+        }
+        if (data.type === "session_updated") {
+          this.handleSessionEvent(data.data || null);
+          return;
+        }
+        if (["attendance_marked", "attendance_checkout"].includes(data.type)) {
+          this.handleRealtimeEvent(data);
+        }
+      } catch (e) {
+        console.error("Error parsing SSE data:", e);
       }
-    } catch (error) {
-      console.error("Error toggling camera:", error);
-      this.showError("Lỗi kết nối: " + error.message);
+    };
+
+    this.sse.onerror = (error) => {
+      console.error("SSE error:", error);
+      this.sse.close();
+      setTimeout(() => this.initSSE(), 5000); // Reconnect after 5s
+    };
+
+    window.addEventListener("beforeunload", () => {
+      if (this.sse) {
+        this.sse.close();
+      }
+    });
+  }
+
+  handleRealtimeEvent(eventPacket) {
+    const payload = eventPacket.data || {};
+    this.showAttendanceNotification(payload, eventPacket.type);
+    this.refreshAttendanceList(true);
+    this.updateStatistics();
+    this.updateActivePresence();
+  }
+
+  showAttendanceNotification(data = {}, eventType = "attendance_marked") {
+    if (!data.student_name) {
+      return;
     }
+    const isCheckout = eventType === "attendance_checkout";
+    const toastClass = isCheckout ? "bg-secondary" : "bg-success";
+    const icon = isCheckout ? "fa-door-closed" : "fa-check-circle";
+    const actionText = isCheckout ? "đã checkout!" : "đã điểm danh!";
+    const notificationHtml = `
+      <div class="toast align-items-center text-white ${toastClass} border-0 show attendance-toast" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+          <div class="toast-body">
+            <i class="fas ${icon} me-2"></i>
+            <strong>${data.student_name}</strong> ${actionText}
+          </div>
+          <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+      </div>`;
+    const toastDiv = document.createElement("div");
+    toastDiv.innerHTML = notificationHtml;
+    document.body.appendChild(toastDiv);
+    setTimeout(() => toastDiv.remove(), 5000);
   }
 
-  async checkStatus() {
-    try {
-      const response = await fetch("/api/camera/status");
-      const data = await response.json();
+  // ========================================
+  // CAMERA
+  // ========================================
+  initCamera() {
+    const toggleSwitch = document.getElementById("toggle-camera");
+    const switchLabel = document.getElementById("camera-switch-label");
 
-      this.isEnabled = data.enabled;
-      this.updateUI();
-    } catch (error) {
-      console.error("Error checking camera status:", error);
-      this.updateStatusIndicator("checking", "Lỗi kết nối");
+    if (!toggleSwitch || !switchLabel) {
+      return;
     }
+
+    const updateStatus = async () => {
+      try {
+        const response = await fetch("/api/camera/status");
+        const data = await response.json();
+        toggleSwitch.checked = data.enabled;
+        switchLabel.textContent = data.enabled ? "Bật" : "Tắt";
+      } catch (error) {
+        console.error("Error checking camera status:", error);
+      }
+    };
+
+    toggleSwitch.addEventListener("change", async function () {
+      const isEnabled = this.checked;
+      switchLabel.textContent = isEnabled ? "Đang bật..." : "Đang tắt...";
+      try {
+        const response = await fetch("/api/camera/toggle", { method: "POST" });
+        const data = await response.json();
+        if (data.success) {
+          switchLabel.textContent = data.enabled ? "Bật" : "Tắt";
+          if (data.enabled) {
+            setTimeout(() => location.reload(), 500);
+          }
+        }
+      } catch (error) {
+        console.error("Error toggling camera:", error);
+      }
+    });
+
+    updateStatus();
+    setInterval(updateStatus, 10000);
   }
 
-  startStatusChecking() {
-    // Check immediately
-    this.checkStatus();
-    this.checkAttendanceNotifications();
+  // ========================================
+  // QUICK REGISTER
+  // ========================================
+  initQuickRegister() {
+    const modalEl = document.getElementById("quickRegisterModal");
+    if (!modalEl) return;
 
-    // Then check every 5 seconds
-    this.statusCheckInterval = setInterval(() => {
-      this.checkStatus();
-      this.checkAttendanceNotifications();
-    }, 5000);
+    const quickRegisterModal = new bootstrap.Modal(modalEl);
+    const quickRegisterBtn = document.getElementById("quick-register-btn");
+    const startWebcamBtn = document.getElementById("start-webcam-btn");
+    const captureBtn = document.getElementById("capture-btn");
+    const retakeBtn = document.getElementById("retake-btn");
+    const submitBtn = document.getElementById("submit-register-btn");
+    if (
+      !quickRegisterBtn ||
+      !startWebcamBtn ||
+      !captureBtn ||
+      !retakeBtn ||
+      !submitBtn
+    ) {
+      return;
+    }
+
+    quickRegisterBtn.addEventListener("click", () => quickRegisterModal.show());
+    modalEl.addEventListener("show.bs.modal", () => {
+      this.populateQuickRegisterClassOptions();
+    });
+    this.populateQuickRegisterClassOptions();
+
+    startWebcamBtn.addEventListener("click", async () => {
+      try {
+        this.webcamStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 320, height: 240 },
+        });
+        document.getElementById("webcam-preview").srcObject = this.webcamStream;
+        this.toggleRegisterCameraUI(true);
+      } catch (error) {
+        alert("Không thể truy cập camera. Lỗi: " + error.message);
+      }
+    });
+
+    captureBtn.addEventListener("click", () => {
+      const canvas = document.getElementById("capture-canvas");
+      const video = document.getElementById("webcam-preview");
+      const context = canvas.getContext("2d");
+      canvas.width = 320;
+      canvas.height = 240;
+      context.drawImage(video, 0, 0, 320, 240);
+      this.capturedImageData = canvas.toDataURL("image/jpeg");
+      document.getElementById("captured-image").src = this.capturedImageData;
+      this.stopWebcam();
+      this.toggleRegisterCameraUI(false, true);
+    });
+
+    retakeBtn.addEventListener("click", () => {
+      this.capturedImageData = null;
+      this.toggleRegisterCameraUI(false);
+    });
+
+    submitBtn.addEventListener("click", async () => {
+      const form = document.getElementById("quickRegisterForm");
+      const formData = new FormData(form);
+      const resultDiv = document.getElementById("register-result");
+
+      if (this.capturedImageData) {
+        formData.append("image_data", this.capturedImageData);
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.innerHTML =
+        '<i class="fas fa-spinner fa-spin me-1"></i>Đang đăng ký...';
+
+      try {
+        const response = await fetch("/api/quick-register", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await response.json();
+        if (response.ok && data.success) {
+          resultDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+          setTimeout(() => {
+            quickRegisterModal.hide();
+            location.reload();
+          }, 1500);
+        } else {
+          resultDiv.innerHTML = `<div class="alert alert-danger">${
+            data.error || "Đăng ký thất bại"
+          }</div>`;
+        }
+      } catch (error) {
+        resultDiv.innerHTML = `<div class="alert alert-danger">Lỗi: ${error.message}</div>`;
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="fas fa-save me-1"></i>Đăng ký';
+      }
+    });
+
+    modalEl.addEventListener("hidden.bs.modal", () => this.stopWebcam());
   }
 
-  async checkAttendanceNotifications() {
-    try {
-      const response = await fetch("/api/attendance/notifications");
-      if (!response.ok) {
-        // Endpoint not implemented yet, skip silently
+  async loadClassOptions(forceReload = false) {
+    if (!forceReload && this.classOptions.length) {
+      return this.classOptions;
+    }
+    if (!forceReload && this.classOptionsPromise) {
+      return this.classOptionsPromise;
+    }
+
+    const loader = (async () => {
+      try {
+        const response = await fetch(`/api/classes?t=${Date.now()}`);
+        if (!response.ok) {
+          throw new Error("Không thể tải danh sách lớp học");
+        }
+        const payload = await response.json();
+        this.classOptions = payload.success ? payload.data || [] : [];
+      } catch (error) {
+        console.error("Error loading class options:", error);
+        this.classOptions = [];
+      } finally {
+        this.classOptionsPromise = null;
+      }
+      return this.classOptions;
+    })();
+
+    if (!forceReload) {
+      this.classOptionsPromise = loader;
+    }
+
+    return loader;
+  }
+
+  async populateQuickRegisterClassOptions(forceReload = false) {
+    const datalist = document.getElementById("quick-register-class-options");
+    if (!datalist) {
+      return;
+    }
+
+    const classes = await this.loadClassOptions(forceReload);
+    datalist.innerHTML = "";
+
+    const seenNames = new Set();
+    classes.forEach((cls) => {
+      const name = cls.class_name || cls.class_code;
+      if (!name || seenNames.has(name)) {
         return;
       }
-      const data = await response.json();
-
-      if (data.notifications && data.notifications.length > 0) {
-        data.notifications.forEach((notification) => {
-          this.showNotification(notification.message, notification.type);
-        });
+      seenNames.add(name);
+      const option = document.createElement("option");
+      option.value = name;
+      if (cls.class_code && cls.class_code !== name) {
+        option.label = `${cls.class_code} · ${name}`;
       }
-    } catch (error) {
-      // Silently fail - endpoint may not be implemented
-      console.debug("Attendance notifications endpoint not available");
+      datalist.appendChild(option);
+    });
+  }
+
+  toggleRegisterCameraUI(isStreaming, isCaptured = false) {
+    document.getElementById("webcam-preview").style.display = isStreaming
+      ? "block"
+      : "none";
+    document.getElementById("camera-placeholder").style.display =
+      !isStreaming && !isCaptured ? "flex" : "none";
+    document.getElementById("captured-image").style.display = isCaptured
+      ? "block"
+      : "none";
+    document.getElementById("start-webcam-btn").style.display =
+      !isStreaming && !isCaptured ? "block" : "none";
+    document.getElementById("capture-btn").style.display = isStreaming
+      ? "block"
+      : "none";
+    document.getElementById("retake-btn").style.display = isCaptured
+      ? "block"
+      : "none";
+  }
+
+  stopWebcam() {
+    if (this.webcamStream) {
+      this.webcamStream.getTracks().forEach((track) => track.stop());
+      this.webcamStream = null;
     }
   }
 
-  updateUI() {
-    const toggleBtn = document.getElementById("toggle-camera");
-
-    if (toggleBtn) {
-      if (this.isEnabled) {
-        toggleBtn.innerHTML =
-          '<i class="fas fa-video-slash me-1"></i>Tắt Camera';
-        toggleBtn.className = "btn btn-danger w-100";
-      } else {
-        toggleBtn.innerHTML = '<i class="fas fa-video me-1"></i>Bật Camera';
-        toggleBtn.className = "btn btn-warning w-100";
-      }
+  // ========================================
+  // QUICK ACTIONS
+  // ========================================
+  initQuickActions() {
+    const reloadFacesBtn = document.getElementById("reload-faces");
+    if (reloadFacesBtn) {
+      reloadFacesBtn.addEventListener("click", async (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        btn.innerHTML =
+          '<i class="fas fa-spinner fa-spin me-2"></i>Đang cập nhật...';
+        try {
+          const res = await fetch("/update_faces", { method: "POST" });
+          if (res.ok) {
+            alert("Cập nhật dữ liệu khuôn mặt thành công!");
+            location.reload();
+          } else {
+            alert("Lỗi cập nhật dữ liệu.");
+          }
+        } catch (err) {
+          alert("Lỗi: " + err.message);
+        } finally {
+          btn.disabled = false;
+          btn.innerHTML =
+            '<i class="fas fa-sync-alt me-2"></i>Cập nhật dữ liệu';
+        }
+      });
     }
 
-    this.updateStatusIndicator(
-      this.isEnabled ? "active" : "inactive",
-      this.isEnabled ? "Camera đang hoạt động" : "Camera đã tắt"
+    const refreshAttendanceBtn = document.getElementById("refresh-attendance");
+    if (refreshAttendanceBtn) {
+      refreshAttendanceBtn.addEventListener("click", () =>
+        this.refreshAttendanceList()
+      );
+    }
+  }
+
+  // ========================================
+  // DATA REFRESH
+  // ========================================
+  startDataRefresh() {
+    this.refreshAttendanceList();
+    this.updateStatistics();
+    this.updateActivePresence();
+
+    this.refreshIntervalId = setInterval(() => {
+      this.refreshAttendanceList();
+      this.updateStatistics();
+      this.updateActivePresence();
+    }, 5000); // Refresh every 5 seconds
+  }
+
+  // ========================================
+  // TEACHER PORTAL
+  // ========================================
+  initTeacherPortal() {
+    this.teacherPortalEl = document.getElementById("teacher-portal");
+    if (!this.teacherPortalEl) {
+      return;
+    }
+
+    this.teacherClassList = document.getElementById("teacher-class-list");
+    this.teacherClassLoading = document.getElementById("teacher-class-loading");
+    this.teacherClassEmpty = document.getElementById("teacher-class-empty");
+    this.teacherClassCount = document.getElementById("teacher-class-count");
+    this.teacherEmptyDefault = this.teacherClassEmpty
+      ? this.teacherClassEmpty.innerHTML
+      : "";
+    this.teacherStatTotalEl = document.querySelector("#teacher-stat-total h4");
+    this.teacherStatActiveEl = document.querySelector(
+      "#teacher-stat-active h4"
+    );
+    this.teacherStatStudentsEl = document.querySelector(
+      "#teacher-stat-students h4"
+    );
+    this.teacherClassModalEl = document.getElementById("teacherClassModal");
+    if (this.teacherClassModalEl && typeof bootstrap !== "undefined") {
+      this.teacherClassModal = new bootstrap.Modal(this.teacherClassModalEl);
+    }
+
+    const refreshBtn = document.getElementById("teacher-refresh");
+    if (refreshBtn) {
+      refreshBtn.addEventListener("click", () =>
+        this.fetchTeacherClasses(true)
+      );
+    }
+
+    this.teacherPortalEl.addEventListener("click", (event) => {
+      const actionBtn = event.target.closest(
+        "[data-action='teacher-view-class']"
+      );
+      if (actionBtn) {
+        const classId = Number(actionBtn.getAttribute("data-class-id"));
+        if (classId) this.openTeacherClassModal(classId);
+        return;
+      }
+
+      // Handle manual mark actions
+      const markCheckin = event.target.closest(
+        "[data-action='teacher-mark-checkin']"
+      );
+      if (markCheckin) {
+        const studentId = markCheckin.getAttribute("data-student-id");
+        const sessionId = markCheckin.getAttribute("data-session-id");
+        if (studentId && sessionId) {
+          this.teacherManualMark(sessionId, studentId, "checkin");
+        }
+        return;
+      }
+
+      const markCheckout = event.target.closest(
+        "[data-action='teacher-mark-checkout']"
+      );
+      if (markCheckout) {
+        const studentId = markCheckout.getAttribute("data-student-id");
+        const sessionId = markCheckout.getAttribute("data-session-id");
+        if (studentId && sessionId) {
+          this.teacherManualMark(sessionId, studentId, "checkout");
+        }
+        return;
+      }
+    });
+
+    this.fetchTeacherClasses();
+  }
+
+  async fetchTeacherClasses(forceReload = false) {
+    if (!this.teacherPortalEl) {
+      return;
+    }
+    this.toggleTeacherLoading(true);
+    const params = new URLSearchParams();
+    const teacherId = this.teacherPortalEl.dataset.teacherId;
+    if (teacherId) {
+      params.set("teacher_id", teacherId);
+    }
+    if (forceReload) {
+      params.set("t", Date.now());
+    }
+    const query = params.toString();
+    const endpoint = query
+      ? `/api/teacher/credit-classes?${query}`
+      : "/api/teacher/credit-classes";
+    try {
+      const data = await this.fetchJson(endpoint);
+      const classes = data.data || [];
+      this.teacherClassesIndex = {};
+      classes.forEach((cls) => {
+        if (cls && cls.id) {
+          this.teacherClassesIndex[cls.id] = cls;
+        }
+      });
+      this.renderTeacherClasses(classes);
+      this.updateTeacherStats(classes);
+    } catch (error) {
+      this.renderTeacherClasses([]);
+      this.showTeacherEmptyState(
+        error.message || "Không thể tải dữ liệu",
+        true
+      );
+    } finally {
+      this.toggleTeacherLoading(false);
+    }
+  }
+
+  renderTeacherClasses(classes = []) {
+    if (!this.teacherClassList) {
+      return;
+    }
+    this.teacherClassList.innerHTML = "";
+    if (!classes.length) {
+      this.showTeacherEmptyState(this.teacherEmptyDefault, false);
+      if (this.teacherClassCount) {
+        this.teacherClassCount.textContent = "0 lớp";
+      }
+      return;
+    }
+    this.showTeacherEmptyState("", false, true);
+    if (this.teacherClassCount) {
+      this.teacherClassCount.textContent = `${classes.length} lớp`;
+    }
+
+    const fragment = document.createDocumentFragment();
+    classes.forEach((cls) => {
+      const col = document.createElement("div");
+      col.className = "col-12";
+      const studentCount = Number(cls.student_count || 0);
+      const schedule = [cls.semester, cls.academic_year]
+        .filter(Boolean)
+        .join(" · ");
+      const scheduleLabel = schedule || "Lịch chưa cập nhật";
+      const activeSession = cls.active_session;
+      const sessionHtml = activeSession
+        ? `<div class="alert alert-success py-2 mb-3"><i class="fas fa-fingerprint me-2"></i>Phiên đang mở đến ${this.formatDateTime(
+            activeSession.expires_at ||
+              activeSession.checkout_deadline ||
+              activeSession.checkin_deadline
+          )}</div>`
+        : `<div class="alert alert-secondary py-2 mb-3"><i class="fas fa-clock me-2"></i>Chưa có phiên điểm danh nào mở</div>`;
+      col.innerHTML = `
+        <div class="teacher-class-card h-100">
+          <div class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+              <h6 class="mb-1">${this.escapeHtml(
+                cls.display_name || cls.subject_name || "Lớp tín chỉ"
+              )}</h6>
+              <div class="teacher-class-meta">${this.escapeHtml(
+                scheduleLabel
+              )}</div>
+            </div>
+            <span class="badge bg-light text-dark">${studentCount} SV</span>
+          </div>
+          <p class="text-muted mb-2">
+            <i class="fas fa-chalkboard me-1"></i>
+            ${this.escapeHtml(cls.room || "Chưa có phòng học")}
+          </p>
+          ${sessionHtml}
+          <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn-sm btn-outline-primary" data-action="teacher-view-class" data-class-id="${
+              cls.id
+            }">
+              <i class="fas fa-layer-group me-1"></i>Chi tiết lớp
+            </button>
+          </div>
+        </div>`;
+      fragment.appendChild(col);
+    });
+    this.teacherClassList.appendChild(fragment);
+  }
+
+  showTeacherEmptyState(message = "", isError = false, hide = false) {
+    if (!this.teacherClassEmpty) {
+      return;
+    }
+    if (hide) {
+      this.teacherClassEmpty.classList.add("d-none");
+      return;
+    }
+    this.teacherClassEmpty.classList.remove("d-none");
+    this.teacherClassEmpty.innerHTML = message
+      ? `<p class="${
+          isError ? "text-danger" : "text-muted"
+        } mb-0">${message}</p>`
+      : this.teacherEmptyDefault;
+  }
+
+  toggleTeacherLoading(isLoading) {
+    if (this.teacherClassLoading) {
+      this.teacherClassLoading.classList.toggle("d-none", !isLoading);
+    }
+    if (this.teacherClassList) {
+      this.teacherClassList.classList.toggle("d-none", isLoading);
+    }
+  }
+
+  updateTeacherStats(classes = []) {
+    const total = classes.length;
+    const active = classes.filter((cls) => cls.active_session).length;
+    const totalStudents = classes.reduce(
+      (sum, cls) => sum + Number(cls.student_count || 0),
+      0
+    );
+    if (this.teacherStatTotalEl) {
+      this.teacherStatTotalEl.textContent = total;
+    }
+    if (this.teacherStatActiveEl) {
+      this.teacherStatActiveEl.textContent = active;
+    }
+    if (this.teacherStatStudentsEl) {
+      this.teacherStatStudentsEl.textContent = totalStudents;
+    }
+  }
+
+  async openTeacherClassModal(classId) {
+    const classInfo = this.teacherClassesIndex[classId];
+    if (!classInfo || !this.teacherClassModal) {
+      return;
+    }
+    const titleEl = document.getElementById("teacher-class-modal-title");
+    const metaEl = document.getElementById("teacher-class-modal-meta");
+    const studentsEl = document.getElementById("teacher-class-students");
+    const sessionsEl = document.getElementById("teacher-class-sessions");
+    if (titleEl) {
+      titleEl.textContent =
+        classInfo.display_name || classInfo.subject_name || "Lớp tín chỉ";
+    }
+    if (metaEl) {
+      const metaPieces = [
+        classInfo.semester,
+        classInfo.academic_year,
+        classInfo.room,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      metaEl.textContent = metaPieces || "Chưa có thông tin chi tiết";
+    }
+    if (studentsEl) {
+      studentsEl.innerHTML =
+        '<div class="text-center py-3 text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Đang tải danh sách sinh viên...</div>';
+    }
+    if (sessionsEl) {
+      sessionsEl.innerHTML =
+        '<div class="text-center py-3 text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Đang tải phiên điểm danh...</div>';
+    }
+    this.teacherClassModal.show();
+
+    // store meta on modal element for use by students rendering
+    try {
+      if (this.teacherClassModalEl) {
+        this.teacherClassModalEl.dataset.creditClassId = classId;
+      }
+    } catch (e) {}
+
+    try {
+      const [roster, sessions] = await Promise.all([
+        this.fetchJson(`/api/teacher/credit-classes/${classId}/students`),
+        this.fetchJson(`/api/teacher/credit-classes/${classId}/sessions`),
+      ]);
+      // determine active session id if any
+      let activeSessionId = null;
+      if (sessions && sessions.sessions && sessions.sessions.length) {
+        for (const s of sessions.sessions) {
+          if ((s.status || "").toLowerCase() === "open") {
+            activeSessionId = s.id;
+            break;
+          }
+        }
+      }
+      try {
+        if (this.teacherClassModalEl) {
+          this.teacherClassModalEl.dataset.sessionId = activeSessionId || "";
+        }
+      } catch (e) {}
+
+      this.renderTeacherModalStudents((roster && roster.students) || []);
+      this.renderTeacherModalSessions((sessions && sessions.sessions) || []);
+    } catch (error) {
+      if (studentsEl) {
+        studentsEl.innerHTML = `<p class="text-danger mb-0">${error.message}</p>`;
+      }
+      if (sessionsEl) {
+        sessionsEl.innerHTML = `<p class="text-danger mb-0">${error.message}</p>`;
+      }
+    }
+  }
+
+  renderTeacherModalStudents(students = []) {
+    const container = document.getElementById("teacher-class-students");
+    if (!container) {
+      return;
+    }
+    if (!students.length) {
+      container.innerHTML =
+        '<p class="text-muted mb-0">Chưa có sinh viên nào trong lớp này.</p>';
+      return;
+    }
+    const sessionId =
+      (this.teacherClassModalEl &&
+        this.teacherClassModalEl.dataset.sessionId) ||
+      "";
+    const rows = students
+      .map((student) => {
+        const isPresent = !!student.is_present_today;
+        const checkedOut = !!student.checked_out;
+        const studentId = this.escapeHtml(student.student_id || "");
+        const displayName = this.escapeHtml(
+          student.full_name || student.student_id || ""
+        );
+        const className = this.escapeHtml(student.class_name || "N/A");
+
+        const actionHtml = isPresent
+          ? checkedOut
+            ? `<span class="badge bg-secondary">Đã checkout</span>`
+            : `<button class="btn btn-sm btn-outline-secondary" data-action="teacher-mark-checkout" data-student-id="${studentId}" data-session-id="${sessionId}"><i class="fas fa-door-closed me-1"></i>Checkout</button>`
+          : `<button class="btn btn-sm btn-primary" data-action="teacher-mark-checkin" data-student-id="${studentId}" data-session-id="${sessionId}"><i class="fas fa-user-check me-1"></i>Điểm danh</button>`;
+
+        return `
+          <div class="d-flex justify-content-between border-bottom py-2 align-items-center">
+            <div>
+              <div class="fw-semibold">${displayName}</div>
+              <small class="text-muted">MSSV: ${studentId}</small>
+            </div>
+            <div class="text-end">
+              <div class="mb-1"><small class="text-muted">${className}</small></div>
+              ${actionHtml}
+            </div>
+          </div>`;
+      })
+      .join("");
+    container.innerHTML = rows;
+  }
+
+  async teacherManualMark(sessionId, studentId, action) {
+    if (!confirm(`Bạn có chắc muốn thực hiện ${action} cho MSSV ${studentId}?`))
+      return;
+    try {
+      const payload = { student_id: studentId, action };
+      const res = await this.fetchJson(
+        `/api/attendance/session/${sessionId}/mark`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+      if (res && res.success) {
+        // reload modal roster to reflect status
+        const classId =
+          this.teacherClassModalEl &&
+          this.teacherClassModalEl.dataset.creditClassId;
+        if (classId) {
+          this.openTeacherClassModal(Number(classId));
+        }
+      } else {
+        alert(res && (res.message || "Thao tác thất bại"));
+      }
+    } catch (err) {
+      alert("Lỗi khi gọi API: " + (err.message || err));
+    }
+  }
+
+  renderTeacherModalSessions(sessions = []) {
+    const container = document.getElementById("teacher-class-sessions");
+    if (!container) {
+      return;
+    }
+    if (!sessions.length) {
+      container.innerHTML =
+        '<p class="text-muted mb-0">Chưa có phiên điểm danh nào được ghi nhận.</p>';
+      return;
+    }
+    const rows = sessions
+      .map((session) => {
+        const status = (session.status || "").toLowerCase();
+        const badgeClass =
+          status === "open"
+            ? "bg-success"
+            : status === "scheduled"
+            ? "bg-warning text-dark"
+            : "bg-secondary";
+        return `
+          <div class="d-flex justify-content-between border-bottom py-2">
+            <div>
+              <div class="fw-semibold">${this.formatDateTime(
+                session.opened_at || session.session_date
+              )}</div>
+              <small class="text-muted">Kết thúc: ${this.formatDateTime(
+                session.closed_at ||
+                  session.checkout_deadline ||
+                  session.checkin_deadline
+              )}</small>
+            </div>
+            <span class="badge ${badgeClass}">${session.status || "--"}</span>
+          </div>`;
+      })
+      .join("");
+    container.innerHTML = rows;
+  }
+
+  // ========================================
+  // STUDENT PORTAL
+  // ========================================
+  initStudentPortal() {
+    this.studentPortalEl = document.getElementById("student-portal");
+    if (!this.studentPortalEl) {
+      return;
+    }
+    this.studentClassList = document.getElementById("student-class-list");
+    this.studentClassLoading = document.getElementById("student-class-loading");
+    this.studentClassEmpty = document.getElementById("student-class-empty");
+    this.studentClassEmptyDefault = this.studentClassEmpty
+      ? this.studentClassEmpty.innerHTML
+      : "";
+    this.studentSummaryTotalEl = document.getElementById(
+      "student-summary-total"
+    );
+    this.studentSummaryActiveEl = document.getElementById(
+      "student-summary-active"
+    );
+    this.studentHistoryList = document.getElementById("student-history-list");
+    this.studentHistoryLoading = document.getElementById(
+      "student-history-loading"
+    );
+    this.studentHistoryEmpty = document.getElementById("student-history-empty");
+    this.studentHistoryEmptyDefault = this.studentHistoryEmpty
+      ? this.studentHistoryEmpty.innerHTML
+      : "";
+    this.studentClassSelectEl = document.getElementById(
+      "student-credit-class-select"
+    );
+    this.studentActionInputs = Array.from(
+      document.querySelectorAll('input[name="student-action"]')
+    );
+    this.studentStartBtn = document.getElementById("student-start-camera");
+    this.studentStopBtn = document.getElementById("student-stop-camera");
+    this.studentSessionAlert = document.getElementById("student-session-alert");
+    this.studentSessionHint = document.getElementById("student-session-hint");
+    this.studentCameraSlot = document.getElementById("student-camera-slot");
+    this.studentCameraWrapper = document.getElementById(
+      "student-camera-wrapper"
+    );
+    this.studentVideoEl = document.getElementById("video-stream");
+
+    if (this.studentCameraSlot && this.studentCameraWrapper) {
+      this.studentCameraSlot.appendChild(this.studentCameraWrapper);
+    }
+
+    if (this.studentVideoEl) {
+      this.studentVideoEl.removeAttribute("src");
+      this.studentVideoEl.classList.add("d-none");
+      this.studentVideoEl.addEventListener("load", () => {
+        if (this.studentVideoEl.src) {
+          this.studentVideoEl.classList.remove("d-none");
+          this.showStudentSessionAlert(
+            "Camera đang hoạt động. Giữ khuôn mặt trong khung.",
+            false
+          );
+        }
+      });
+      this.studentVideoEl.addEventListener("error", () => {
+        this.stopStudentCamera(
+          "Không thể kết nối camera. Vui lòng kiểm tra và thử lại."
+        );
+      });
+    }
+
+    this.bindStudentCameraControls();
+
+    const refreshBtn = document.getElementById("student-refresh");
+    if (refreshBtn) {
+      refreshBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        this.fetchStudentClasses(true);
+      });
+    }
+    const historyBtn = document.getElementById("student-history-refresh");
+    if (historyBtn) {
+      historyBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        this.fetchStudentHistory(true);
+      });
+    }
+
+    if (this.studentPortalEl.dataset.studentId) {
+      this.fetchStudentClasses();
+      this.fetchStudentHistory();
+    }
+  }
+
+  bindStudentCameraControls() {
+    if (!this.studentPortalEl) {
+      return;
+    }
+
+    if (this.studentActionInputs.length) {
+      this.studentActionInputs.forEach((input) => {
+        input.addEventListener("change", () => {
+          if (!input.checked) {
+            return;
+          }
+          this.studentCurrentAction = input.value || "checkin";
+          if (this.studentCameraActive) {
+            this.stopStudentCamera(
+              "Đã thay đổi hành động. Camera được đặt lại."
+            );
+          }
+        });
+      });
+    }
+
+    if (this.studentClassSelectEl) {
+      this.studentClassSelectEl.addEventListener("change", () => {
+        this.studentSelectedClassId = this.studentClassSelectEl.value;
+        this.studentSessionState = null;
+        if (this.studentStartBtn) {
+          this.studentStartBtn.disabled = true;
+        }
+        if (this.studentCameraActive) {
+          this.stopStudentCamera(
+            "Đã thay đổi lớp tín chỉ. Camera được đặt lại."
+          );
+        }
+        this.validateStudentSession();
+      });
+    }
+
+    if (this.studentStartBtn) {
+      this.studentStartBtn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        await this.startStudentCamera();
+      });
+    }
+
+    if (this.studentStopBtn) {
+      this.studentStopBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        this.stopStudentCamera();
+      });
+    }
+  }
+
+  async fetchStudentClasses(forceReload = false) {
+    if (!this.studentPortalEl || !this.studentPortalEl.dataset.studentId) {
+      return;
+    }
+    this.toggleStudentClassLoading(true);
+    const params = new URLSearchParams();
+    const studentId = this.studentPortalEl.dataset.studentId;
+    if (studentId) {
+      params.set("student_id", studentId);
+    }
+    if (forceReload) {
+      params.set("t", Date.now());
+    }
+    const query = params.toString();
+    const endpoint = query
+      ? `/api/student/credit-classes?${query}`
+      : "/api/student/credit-classes";
+    try {
+      const data = await this.fetchJson(endpoint);
+      const classes = data.classes || [];
+      this.renderStudentClasses(classes);
+      this.populateStudentClassSelect(classes);
+      this.updateStudentSummary(data.summary || {});
+    } catch (error) {
+      this.renderStudentClasses([]);
+      this.showStudentClassEmpty(
+        error.message || "Không thể tải dữ liệu",
+        true
+      );
+    } finally {
+      this.toggleStudentClassLoading(false);
+    }
+  }
+
+  renderStudentClasses(classes = []) {
+    if (!this.studentClassList) {
+      return;
+    }
+    this.studentClassList.innerHTML = "";
+    if (!classes.length) {
+      this.showStudentClassEmpty("Chưa có lớp tín chỉ nào.");
+      return;
+    }
+    this.showStudentClassEmpty("", false, true);
+    const fragment = document.createDocumentFragment();
+    classes.forEach((cls) => {
+      const col = document.createElement("div");
+      col.className = "col-12 col-md-6";
+      const activeSession = cls.active_session;
+      const sessionPill = activeSession
+        ? `<span class="session-pill bg-success text-white"><i class="fas fa-satellite-dish me-1"></i>Đang mở</span>`
+        : `<span class="session-pill bg-light text-muted"><i class="fas fa-clock me-1"></i>Đang đóng</span>`;
+      col.innerHTML = `
+        <div class="student-class-card h-100">
+          <div class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+              <h6 class="mb-1">${this.escapeHtml(
+                cls.subject_name || cls.display_name || "Lớp tín chỉ"
+              )}</h6>
+              <div class="class-code">${this.escapeHtml(
+                cls.credit_code || "---"
+              )}</div>
+            </div>
+            ${sessionPill}
+          </div>
+          <p class="mb-1 text-muted"><i class="fas fa-location-dot me-1"></i>${this.escapeHtml(
+            cls.room || "Chưa có phòng"
+          )}</p>
+          <p class="mb-3 text-muted small">${this.escapeHtml(
+            cls.schedule_info || "Lịch học chưa cập nhật"
+          )}</p>
+          <div class="d-flex justify-content-between small text-muted">
+            <span><i class="fas fa-users me-1"></i>${
+              cls.student_count || 0
+            } sinh viên</span>
+            <span><i class="fas fa-book me-1"></i>${
+              cls.semester || "---"
+            }</span>
+          </div>
+        </div>`;
+      fragment.appendChild(col);
+    });
+    this.studentClassList.appendChild(fragment);
+  }
+
+  populateStudentClassSelect(classes = []) {
+    if (!this.studentClassSelectEl) {
+      return;
+    }
+    const previousValue = this.studentClassSelectEl.value;
+    this.studentClassSelectEl.innerHTML =
+      '<option value="">Chọn lớp tín chỉ</option>';
+
+    classes.forEach((cls) => {
+      if (!cls) {
+        return;
+      }
+      const option = document.createElement("option");
+      const classId = cls.id || cls.credit_class_id;
+      option.value = classId || "";
+      option.textContent = this.escapeHtml(
+        cls.display_name ||
+          cls.credit_code ||
+          cls.subject_name ||
+          `Lớp tín chỉ ${classId || ""}`
+      );
+      if (cls.active_session) {
+        option.dataset.sessionStatus = "open";
+      }
+      this.studentClassSelectEl.appendChild(option);
+    });
+
+    if (previousValue) {
+      this.studentClassSelectEl.value = previousValue;
+    }
+    this.studentSelectedClassId = this.studentClassSelectEl.value;
+  }
+
+  showStudentSessionAlert(message = "", isError = false, hide = false) {
+    if (!this.studentSessionAlert) {
+      return;
+    }
+    const alertEl = this.studentSessionAlert;
+    if (hide || !message) {
+      alertEl.classList.add("d-none");
+      alertEl.textContent = "";
+      alertEl.classList.remove("alert-danger", "alert-info");
+      alertEl.classList.add("alert-info");
+      return;
+    }
+    alertEl.textContent = message;
+    alertEl.classList.remove("d-none");
+    alertEl.classList.remove("alert-danger", "alert-info");
+    alertEl.classList.add(isError ? "alert-danger" : "alert-info");
+  }
+
+  setStudentSessionHint(message = "") {
+    if (!this.studentSessionHint) {
+      return;
+    }
+    this.studentSessionHint.textContent = message || "";
+  }
+
+  toggleStudentCameraCard(show) {
+    if (!this.studentCameraWrapper) {
+      return;
+    }
+    this.studentCameraWrapper.classList.toggle("d-none", !show);
+  }
+
+  async validateStudentSession(showLoading = true) {
+    if (!this.studentClassSelectEl || !this.studentStartBtn) {
+      return;
+    }
+    const classId = Number(this.studentClassSelectEl.value);
+    this.studentSelectedClassId = this.studentClassSelectEl.value;
+    if (!classId) {
+      this.studentSessionState = null;
+      this.studentStartBtn.disabled = true;
+      this.toggleStudentCameraCard(false);
+      this.showStudentSessionAlert(
+        "Vui lòng chọn lớp tín chỉ để bắt đầu.",
+        false
+      );
+      return;
+    }
+
+    if (showLoading) {
+      this.showStudentSessionAlert("Đang kiểm tra phiên điểm danh...", false);
+    }
+    this.setStudentSessionHint("Đang xác thực phiên với giảng viên...");
+
+    try {
+      const payload = await this.fetchJson(
+        `/api/attendance/session?t=${Date.now()}`
+      );
+      const session = payload.session || null;
+      if (session && Number(session.credit_class_id) === classId) {
+        this.studentSessionState = session;
+        this.studentStartBtn.disabled = false;
+        const expiresText = session.expires_at
+          ? this.formatDateTime(session.expires_at)
+          : "chưa xác định";
+        this.showStudentSessionAlert(
+          `Phiên đang mở đến ${expiresText}. Bạn có thể bắt đầu.`,
+          false
+        );
+        this.setStudentSessionHint("Sẵn sàng bật camera để điểm danh.");
+      } else {
+        this.studentSessionState = null;
+        this.studentStartBtn.disabled = true;
+        this.toggleStudentCameraCard(false);
+        this.showStudentSessionAlert(
+          "Lớp này hiện chưa có phiên điểm danh mở.",
+          true
+        );
+        this.setStudentSessionHint("Vui lòng liên hệ giảng viên để mở phiên.");
+      }
+    } catch (error) {
+      this.studentSessionState = null;
+      this.studentStartBtn.disabled = true;
+      this.toggleStudentCameraCard(false);
+      this.showStudentSessionAlert(error.message, true);
+      this.setStudentSessionHint("Không thể kiểm tra phiên. Thử lại sau.");
+    }
+  }
+
+  async startStudentCamera() {
+    if (!this.studentPortalEl || this.studentCameraActive) {
+      return;
+    }
+    await this.validateStudentSession(false);
+    if (!this.studentSessionState) {
+      return;
+    }
+    if (!this.studentVideoEl) {
+      this.showStudentSessionAlert(
+        "Không tìm thấy thành phần camera trong trang.",
+        true
+      );
+      return;
+    }
+
+    const classId = this.studentClassSelectEl.value;
+    const params = new URLSearchParams({
+      action: this.studentCurrentAction || "checkin",
+      credit_class_id: classId,
+      ts: Date.now().toString(),
+    });
+    const baseUrl =
+      this.studentVideoEl.dataset.feedBase ||
+      this.studentVideoEl.src ||
+      "/video_feed";
+    this.studentVideoEl.src = `${baseUrl}?${params.toString()}`;
+    this.studentVideoEl.classList.add("d-none");
+    this.toggleStudentCameraCard(true);
+    this.studentCameraActive = true;
+    if (this.studentStartBtn) {
+      this.studentStartBtn.disabled = true;
+    }
+    if (this.studentStopBtn) {
+      this.studentStopBtn.classList.remove("d-none");
+    }
+    this.showStudentSessionAlert("Đang khởi chạy camera...", false);
+  }
+
+  stopStudentCamera(message = "") {
+    if (!this.studentPortalEl) {
+      return;
+    }
+    this.studentCameraActive = false;
+    if (this.studentVideoEl) {
+      this.studentVideoEl.src = "";
+      this.studentVideoEl.classList.add("d-none");
+    }
+    this.toggleStudentCameraCard(false);
+    if (this.studentStopBtn) {
+      this.studentStopBtn.classList.add("d-none");
+    }
+    if (this.studentClassSelectEl && this.studentClassSelectEl.value) {
+      this.validateStudentSession(false).catch(() => {});
+    }
+    const alertMessage =
+      message || "Camera đã tắt. Bạn có thể bắt đầu lại khi cần.";
+    this.showStudentSessionAlert(alertMessage, Boolean(message));
+    if (this.studentStartBtn && this.studentSessionState) {
+      this.studentStartBtn.disabled = false;
+    }
+  }
+
+  toggleStudentClassLoading(isLoading) {
+    if (this.studentClassLoading) {
+      this.studentClassLoading.classList.toggle("d-none", !isLoading);
+    }
+    if (this.studentClassList) {
+      this.studentClassList.classList.toggle("d-none", isLoading);
+    }
+  }
+
+  showStudentClassEmpty(message = "", isError = false, hide = false) {
+    if (!this.studentClassEmpty) {
+      return;
+    }
+    if (hide) {
+      this.studentClassEmpty.classList.add("d-none");
+      return;
+    }
+    this.studentClassEmpty.classList.remove("d-none");
+    this.studentClassEmpty.innerHTML = message
+      ? `<p class="${
+          isError ? "text-danger" : "text-muted"
+        } mb-0">${message}</p>`
+      : this.studentClassEmptyDefault;
+  }
+
+  updateStudentSummary(summary = {}) {
+    if (this.studentSummaryTotalEl) {
+      this.studentSummaryTotalEl.textContent = summary.total_classes || 0;
+    }
+    if (this.studentSummaryActiveEl) {
+      this.studentSummaryActiveEl.textContent = summary.active_sessions || 0;
+    }
+  }
+
+  async fetchStudentHistory(forceReload = false) {
+    if (!this.studentPortalEl || !this.studentPortalEl.dataset.studentId) {
+      return;
+    }
+    this.toggleStudentHistoryLoading(true);
+    const studentId = this.studentPortalEl.dataset.studentId;
+    const endpoint = `/api/attendance/history/${encodeURIComponent(
+      studentId
+    )}?limit=10${forceReload ? `&t=${Date.now()}` : ""}`;
+    try {
+      const data = await this.fetchJson(endpoint);
+      this.renderStudentHistory(data.history || []);
+    } catch (error) {
+      this.renderStudentHistory([]);
+      this.showStudentHistoryEmpty(
+        error.message || "Không thể tải lịch sử",
+        true
+      );
+    } finally {
+      this.toggleStudentHistoryLoading(false);
+    }
+  }
+
+  renderStudentHistory(history = []) {
+    if (!this.studentHistoryList) {
+      return;
+    }
+    this.studentHistoryList.innerHTML = "";
+    if (!history.length) {
+      this.showStudentHistoryEmpty("Chưa có lịch sử điểm danh.");
+      return;
+    }
+    this.showStudentHistoryEmpty("", false, true);
+    const fragment = document.createDocumentFragment();
+    history.forEach((item) => {
+      const entry = document.createElement("div");
+      entry.className = "student-history-item";
+      const badgeClass = this.historyStatusClass(item.status);
+      entry.innerHTML = `
+        <div>
+          <strong>${this.escapeHtml(
+            item.class_display || item.credit_class_code || "Phiên học"
+          )}</strong>
+          <div class="history-meta">
+            ${this.escapeHtml(
+              item.attendance_date || "--"
+            )} · ${this.escapeHtml(item.credit_class_code || "---")}
+          </div>
+          <div class="history-meta">
+            Vào: ${
+              item.check_in_time ? this.formatTime(item.check_in_time) : "--"
+            } · Ra: ${
+        item.check_out_time ? this.formatTime(item.check_out_time) : "--"
+      }
+          </div>
+        </div>
+        <span class="badge ${badgeClass}">${this.escapeHtml(
+        item.status || "--"
+      )}</span>`;
+      fragment.appendChild(entry);
+    });
+    this.studentHistoryList.appendChild(fragment);
+  }
+
+  historyStatusClass(status) {
+    const normalized = (status || "").toLowerCase();
+    switch (normalized) {
+      case "present":
+        return "bg-success";
+      case "late":
+        return "bg-warning text-dark";
+      case "absent":
+        return "bg-danger";
+      case "excused":
+        return "bg-info text-dark";
+      default:
+        return "bg-secondary";
+    }
+  }
+
+  toggleStudentHistoryLoading(isLoading) {
+    if (this.studentHistoryLoading) {
+      this.studentHistoryLoading.classList.toggle("d-none", !isLoading);
+    }
+    if (this.studentHistoryList) {
+      this.studentHistoryList.classList.toggle("d-none", isLoading);
+    }
+  }
+
+  showStudentHistoryEmpty(message = "", isError = false, hide = false) {
+    if (!this.studentHistoryEmpty) {
+      return;
+    }
+    if (hide) {
+      this.studentHistoryEmpty.classList.add("d-none");
+      return;
+    }
+    this.studentHistoryEmpty.classList.remove("d-none");
+    this.studentHistoryEmpty.innerHTML = message
+      ? `<p class="${
+          isError ? "text-danger" : "text-muted"
+        } mb-0">${message}</p>`
+      : this.studentHistoryEmptyDefault;
+  }
+
+  async refreshAttendanceList(triggeredByRealtime = false) {
+    try {
+      const response = await fetch(`/api/attendance/today?t=${Date.now()}`, {
+        headers: { "Cache-Control": "no-cache" },
+      });
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || "Không thể tải danh sách điểm danh");
+      }
+
+      this.renderAttendanceTable(data.data || []);
+      this.updateSummarySections(data.checked_in || [], data.checked_out || []);
+      if (Object.prototype.hasOwnProperty.call(data, "session")) {
+        this.handleSessionEvent(data.session || null);
+      }
+    } catch (error) {
+      const logger = triggeredByRealtime ? console.warn : console.error;
+      logger("Error refreshing attendance list:", error);
+    }
+  }
+
+  renderAttendanceTable(rows) {
+    const tbody = document.getElementById("attendance-table-body");
+    const countBadge = document.getElementById("attendance-count");
+    if (!tbody) {
+      return;
+    }
+
+    if (!rows.length) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6">
+            <div class="text-center py-5">
+              <i class="fas fa-user-times fa-3x text-muted mb-3"></i>
+              <h5 class="text-muted">Chưa có sinh viên nào điểm danh</h5>
+              <p class="text-muted">Hệ thống sẽ tự động nhận diện và điểm danh khi có sinh viên xuất hiện trước camera.</p>
+            </div>
+          </td>
+        </tr>`;
+    } else {
+      const html = rows
+        .map((row, index) => this.createAttendanceRow(row, index))
+        .join("");
+      tbody.innerHTML = html;
+    }
+
+    if (countBadge) {
+      countBadge.textContent = rows.length;
+    }
+  }
+
+  createAttendanceRow(row, index) {
+    const duration = this.formatDuration(row.duration_minutes);
+    const status = {
+      "Đang có mặt": { class: "bg-success", icon: "fa-user-check" },
+      "Đã rời": { class: "bg-secondary", icon: "fa-sign-out-alt" },
+    }[row.status] || { class: "bg-warning", icon: "fa-user-clock" };
+    const rawName = row.full_name || "Không có tên";
+    const safeName = this.escapeHtml(rawName);
+    const safeId = this.escapeHtml(row.student_id || "N/A");
+    const buttonStudentId = this.escapeHtml(row.student_id || "");
+    const initials = rawName ? rawName.charAt(0).toUpperCase() : "N";
+    const checkInTime = this.formatTime(row.timestamp);
+    const checkOutTime = row.checkout_time
+      ? this.formatTime(row.checkout_time)
+      : "";
+    const buttonName = this.escapeHtml(rawName);
+    const classBadge = this.renderClassBadge(row);
+
+    return `
+      <tr data-student-id="${row.student_id}">
+        <td>${index + 1}</td>
+        <td>
+          <div class="d-flex align-items-center">
+            <div class="avatar-sm bg-primary text-white rounded-circle d-flex align-items-center justify-content-center me-2">${initials}</div>
+            <div>
+              <div class="fw-bold">${safeName}</div>
+              <small class="text-muted">ID: ${safeId}</small>
+              ${classBadge}
+            </div>
+          </div>
+        </td>
+        <td>
+          <div><i class="fas fa-clock me-1"></i>${checkInTime}</div>
+          ${
+            checkOutTime
+              ? `<small class="text-muted"><i class="fas fa-sign-out-alt me-1"></i>Ra: ${checkOutTime}</small>`
+              : ""
+          }
+        </td>
+        <td><span class="badge bg-info">${duration}</span></td>
+        <td><span class="badge ${status.class}"><i class="fas ${
+      status.icon
+    } me-1"></i>${row.status}</span></td>
+        <td><button class="btn btn-sm btn-outline-primary js-view-details" data-student-id="${buttonStudentId}" data-student-name="${buttonName}"><i class="fas fa-eye"></i></button></td>
+      </tr>`;
+  }
+
+  renderClassBadge(row) {
+    if (!row || !row.class_display) {
+      return "";
+    }
+    const badgeType =
+      (row.class_type || "") === "credit" ? "badge-credit" : "badge-admin";
+    const label = this.escapeHtml(row.class_display);
+    return `
+      <div class="attendance-class-chip mt-1">
+        <span class="badge class-badge ${badgeType}">${label}</span>
+      </div>`;
+  }
+
+  async updateStatistics() {
+    const totalEl = document.getElementById("total-students");
+    const attendedEl = document.getElementById("attended-students");
+    const rateEl = document.getElementById("attendance-rate");
+    const avgEl = document.getElementById("avg-duration");
+
+    if (!totalEl && !attendedEl && !rateEl && !avgEl) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/statistics?t=${Date.now()}`, {
+        headers: { "Cache-Control": "no-cache" },
+      });
+      const data = await response.json();
+      if (totalEl) {
+        totalEl.textContent = data.total_students || 0;
+      }
+      if (attendedEl) {
+        attendedEl.textContent = data.attended_students || 0;
+      }
+      if (rateEl) {
+        rateEl.textContent = `${data.attendance_rate || 0}%`;
+      }
+      if (avgEl) {
+        const avgMins = data.avg_duration_minutes || 0;
+        avgEl.textContent = `${Math.floor(avgMins / 60)}h ${avgMins % 60}p`;
+      }
+    } catch (error) {
+      console.error("Error updating statistics:", error);
+    }
+  }
+
+  async updateActivePresence() {
+    try {
+      const response = await fetch(`/api/presence/active?t=${Date.now()}`, {
+        headers: { "Cache-Control": "no-cache" },
+      });
+      const data = await response.json();
+      const activeList = document.getElementById("active-presence-list");
+      if (!activeList) {
+        return;
+      }
+      activeList.innerHTML = "";
+      if (data.success && data.count > 0) {
+        data.data.forEach((student) => {
+          activeList.innerHTML += `<div class="d-flex justify-content-between align-items-center mb-2"><span>${student.name}</span><span class="badge bg-success">Đang có mặt</span></div>`;
+        });
+      } else {
+        activeList.innerHTML = `<div class="text-center text-muted"><i class="fas fa-user-clock fa-2x mb-2"></i><p>Chưa có sinh viên nào.</p></div>`;
+      }
+    } catch (error) {
+      console.error("Error updating active presence:", error);
+    }
+  }
+
+  updateSummarySections(checkedIn = [], checkedOut = []) {
+    const updateList = ({
+      countId,
+      listId,
+      items,
+      timeKey,
+      emptyLabel,
+      badgeClass,
+      badgeText,
+      timeLabel,
+    }) => {
+      const countEl = document.getElementById(countId);
+      const listEl = document.getElementById(listId);
+      if (countEl) {
+        countEl.textContent = items.length;
+      }
+      if (!listEl) {
+        return;
+      }
+
+      if (!items.length) {
+        listEl.innerHTML = `<div class="list-group-item text-center text-muted">${emptyLabel}</div>`;
+        return;
+      }
+
+      listEl.innerHTML = items
+        .map((item) => {
+          const name = this.escapeHtml(
+            item.full_name || item.student_name || "Không rõ"
+          );
+          const timeValue = this.formatTime(item[timeKey] || item.timestamp);
+          return `
+            <div class="list-group-item d-flex justify-content-between align-items-center">
+              <div>
+                <div class="fw-bold">${name}</div>
+                <small class="text-muted">${timeLabel}: ${timeValue}</small>
+              </div>
+              <span class="badge ${badgeClass}">${badgeText}</span>
+            </div>`;
+        })
+        .join("");
+    };
+
+    updateList({
+      countId: "checked-in-count",
+      listId: "checked-in-list",
+      items: checkedIn,
+      timeKey: "timestamp",
+      emptyLabel: "Chưa có sinh viên nào check-in",
+      badgeClass: "bg-success",
+      badgeText: "Đang có mặt",
+      timeLabel: "Vào",
+    });
+
+    updateList({
+      countId: "checked-out-count",
+      listId: "checked-out-list",
+      items: checkedOut,
+      timeKey: "checkout_time",
+      emptyLabel: "Chưa có sinh viên nào checkout",
+      badgeClass: "bg-secondary",
+      badgeText: "Đã checkout",
+      timeLabel: "Ra",
+    });
+  }
+
+  initAttendanceSessionPanel() {
+    const card = document.getElementById("credit-session-card");
+    if (!card) {
+      return;
+    }
+    this.sessionElements = {
+      card,
+      select: document.getElementById("credit-class-select"),
+      openBtn: document.getElementById("open-session-btn"),
+      closeBtn: document.getElementById("close-session-btn"),
+      formContainer: document.getElementById("session-form-container"),
+      activeContainer: document.getElementById("active-session-container"),
+      statusPill: document.getElementById("session-status-pill"),
+      alert: document.getElementById("session-alert"),
+      className: document.getElementById("session-class-name"),
+      classCode: document.getElementById("session-class-code"),
+      openedAt: document.getElementById("session-opened-at"),
+      deadline: document.getElementById("session-deadline"),
+      countdown: document.getElementById("session-countdown"),
+    };
+
+    if (this.sessionElements.openBtn) {
+      this.sessionElements.openBtn.addEventListener("click", () =>
+        this.handleOpenSession()
+      );
+    }
+    if (this.sessionElements.closeBtn) {
+      this.sessionElements.closeBtn.addEventListener("click", () =>
+        this.handleCloseSession()
+      );
+    }
+
+    window.addEventListener("beforeunload", () => {
+      this.stopSessionCountdown();
+      if (this.sessionPollInterval) {
+        clearInterval(this.sessionPollInterval);
+        this.sessionPollInterval = null;
+      }
+    });
+    this.fetchCreditClassesForSession();
+    this.refreshSessionState(true);
+    this.sessionPollInterval = setInterval(
+      () => this.refreshSessionState(true),
+      15000
     );
   }
 
-  updateStatusIndicator(status, text) {
-    const indicator = document.querySelector(".status-indicator");
-    const statusText = document.getElementById("camera-status-text");
-
-    if (indicator) {
-      indicator.className = `status-indicator ${status}`;
+  async fetchCreditClassesForSession(forceReload = false) {
+    if (!this.sessionElements.select) {
+      return;
+    }
+    if (!forceReload && this.creditClassOptions.length) {
+      this.populateCreditClassSelect();
+      return;
+    }
+    if (!forceReload && this.creditClassPromise) {
+      await this.creditClassPromise;
+      return;
     }
 
-    if (statusText) {
-      statusText.textContent = text;
-    }
-  }
-
-  showSuccess(message) {
-    this.showNotification(message, "success");
-  }
-
-  showError(message) {
-    this.showNotification(message, "danger");
-  }
-
-  showNotification(message, type) {
-    const notification = document.createElement("div");
-    notification.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
-    notification.style.cssText =
-      "top: 20px; right: 20px; z-index: 9999; min-width: 300px;";
-    notification.innerHTML = `
-            ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        `;
-
-    document.body.appendChild(notification);
-
-    // Auto remove after 5 seconds
-    setTimeout(() => {
-      if (notification.parentNode) {
-        notification.parentNode.removeChild(notification);
+    const loader = (async () => {
+      try {
+        const response = await fetch(`/api/credit-classes?t=${Date.now()}`);
+        const payload = await response.json();
+        this.creditClassOptions = payload.success ? payload.data || [] : [];
+      } catch (error) {
+        console.error("Error loading credit classes:", error);
+        this.creditClassOptions = [];
+      } finally {
+        this.creditClassPromise = null;
+        this.populateCreditClassSelect();
       }
-    }, 5000);
+    })();
+
+    if (!forceReload) {
+      this.creditClassPromise = loader;
+    }
+
+    return loader;
+  }
+
+  populateCreditClassSelect() {
+    const select = this.sessionElements.select;
+    if (!select) {
+      return;
+    }
+    select.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = this.creditClassOptions.length
+      ? "-- Chọn lớp tín chỉ --"
+      : "-- Chưa có lớp tín chỉ --";
+    select.appendChild(placeholder);
+
+    this.creditClassOptions.forEach((cls) => {
+      const option = document.createElement("option");
+      option.value = cls.id;
+      option.textContent =
+        cls.display_name ||
+        [cls.subject_name, cls.credit_code].filter(Boolean).join(" · ");
+      if (cls.student_count) {
+        option.textContent += ` (${cls.student_count} SV)`;
+      }
+      select.appendChild(option);
+    });
+  }
+
+  handleSessionEvent(sessionPayload) {
+    if (!this.sessionElements.card) {
+      return;
+    }
+    this.updateSessionUI(sessionPayload);
+  }
+
+  async handleOpenSession() {
+    if (!this.sessionElements.select || !this.sessionElements.openBtn) {
+      return;
+    }
+    const classId = this.sessionElements.select.value;
+    if (!classId) {
+      this.setSessionAlert("Vui lòng chọn lớp tín chỉ", "warning");
+      return;
+    }
+
+    this.setSessionAlert("");
+    this.toggleButtonLoading(
+      this.sessionElements.openBtn,
+      true,
+      "Đang mở phiên..."
+    );
+    try {
+      const response = await fetch("/api/attendance/session/open", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credit_class_id: classId }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.message || "Không thể mở phiên điểm danh");
+      }
+      this.setSessionAlert("Đã mở phiên điểm danh thành công", "success");
+      this.handleSessionEvent(payload.session || null);
+      this.refreshAttendanceList(true);
+    } catch (error) {
+      this.setSessionAlert(error.message || "Không thể mở phiên điểm danh");
+    } finally {
+      this.toggleButtonLoading(this.sessionElements.openBtn, false);
+    }
+  }
+
+  async handleCloseSession() {
+    if (!this.sessionElements.closeBtn) {
+      return;
+    }
+    this.toggleButtonLoading(
+      this.sessionElements.closeBtn,
+      true,
+      "Đang đóng phiên..."
+    );
+    this.setSessionAlert("");
+    try {
+      const response = await fetch("/api/attendance/session/close", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.message || "Không thể đóng phiên");
+      }
+      this.setSessionAlert("Phiên điểm danh đã được đóng", "info");
+      this.handleSessionEvent(payload.session || null);
+      this.refreshAttendanceList(true);
+    } catch (error) {
+      this.setSessionAlert(error.message || "Không thể đóng phiên");
+    } finally {
+      this.toggleButtonLoading(this.sessionElements.closeBtn, false);
+    }
+  }
+
+  async refreshSessionState(silent = false) {
+    if (!this.sessionElements.card) {
+      return;
+    }
+    try {
+      const response = await fetch(`/api/attendance/session?t=${Date.now()}`, {
+        headers: { "Cache-Control": "no-cache" },
+      });
+      const payload = await response.json();
+      if (!payload.success) {
+        throw new Error(payload.message || "Không thể tải trạng thái phiên");
+      }
+      this.handleSessionEvent(payload.session || null);
+    } catch (error) {
+      if (!silent) {
+        this.setSessionAlert(error.message || "Không thể tải trạng thái phiên");
+      }
+    }
+  }
+
+  updateSessionUI(sessionPayload) {
+    if (!this.sessionElements.statusPill) {
+      return;
+    }
+    const hasActiveSession =
+      sessionPayload && (sessionPayload.status || "") === "open";
+    this.activeSession = hasActiveSession ? sessionPayload : null;
+    this.sessionElements.statusPill.textContent = hasActiveSession
+      ? "Đang mở"
+      : "Đang đóng";
+    this.sessionElements.statusPill.className = `badge ${
+      hasActiveSession ? "bg-success" : "bg-secondary"
+    }`;
+
+    if (this.sessionElements.formContainer) {
+      this.sessionElements.formContainer.classList.toggle(
+        "d-none",
+        !!hasActiveSession
+      );
+    }
+    if (this.sessionElements.activeContainer) {
+      this.sessionElements.activeContainer.classList.toggle(
+        "d-none",
+        !hasActiveSession
+      );
+    }
+
+    if (!hasActiveSession) {
+      this.stopSessionCountdown();
+      return;
+    }
+
+    this.sessionElements.className.textContent =
+      sessionPayload.class_name || sessionPayload.class_code || "---";
+    this.sessionElements.classCode.textContent = sessionPayload.class_code
+      ? `Mã lớp: ${sessionPayload.class_code}`
+      : "";
+    this.sessionElements.openedAt.textContent = sessionPayload.opened_at
+      ? this.formatDateTime(sessionPayload.opened_at)
+      : "--";
+    const expiresAt =
+      sessionPayload.expires_at ||
+      sessionPayload.checkin_deadline ||
+      sessionPayload.checkout_deadline;
+    this.sessionElements.deadline.textContent = expiresAt
+      ? this.formatDateTime(expiresAt)
+      : "--";
+    this.startSessionCountdown();
+  }
+
+  setSessionAlert(message = "", type = "danger") {
+    if (!this.sessionElements.alert) {
+      return;
+    }
+    if (!message) {
+      this.sessionElements.alert.classList.add("d-none");
+      this.sessionElements.alert.textContent = "";
+      this.sessionElements.alert.className = "alert alert-danger d-none";
+      return;
+    }
+    this.sessionElements.alert.textContent = message;
+    this.sessionElements.alert.className = `alert alert-${type}`;
+  }
+
+  startSessionCountdown() {
+    this.stopSessionCountdown();
+    this.updateSessionCountdown();
+    this.sessionCountdownInterval = setInterval(
+      () => this.updateSessionCountdown(),
+      1000
+    );
+  }
+
+  stopSessionCountdown() {
+    if (this.sessionCountdownInterval) {
+      clearInterval(this.sessionCountdownInterval);
+      this.sessionCountdownInterval = null;
+    }
+    if (this.sessionElements.countdown) {
+      this.sessionElements.countdown.textContent = "--:--";
+    }
+  }
+
+  updateSessionCountdown() {
+    if (!this.sessionElements.countdown || !this.activeSession) {
+      return;
+    }
+    const deadline =
+      this.activeSession.expires_at ||
+      this.activeSession.checkin_deadline ||
+      this.activeSession.checkout_deadline;
+    if (!deadline) {
+      this.sessionElements.countdown.textContent = "--:--";
+      return;
+    }
+    const diffSeconds = Math.max(
+      Math.floor((Date.parse(deadline) - Date.now()) / 1000),
+      0
+    );
+    const minutes = String(Math.floor(diffSeconds / 60)).padStart(2, "0");
+    const seconds = String(diffSeconds % 60).padStart(2, "0");
+    this.sessionElements.countdown.textContent = `${minutes}:${seconds}`;
+    if (diffSeconds <= 0) {
+      this.stopSessionCountdown();
+      this.refreshSessionState(true);
+    }
+  }
+
+  toggleButtonLoading(button, isLoading, loadingText) {
+    if (!button) {
+      return;
+    }
+    if (isLoading) {
+      button.dataset.originalText =
+        button.dataset.originalText || button.innerHTML;
+      button.disabled = true;
+      button.innerHTML = `<i class="fas fa-spinner fa-spin me-2"></i>${
+        loadingText || "Đang xử lý..."
+      }`;
+    } else {
+      button.disabled = false;
+      if (button.dataset.originalText) {
+        button.innerHTML = button.dataset.originalText;
+        delete button.dataset.originalText;
+      }
+    }
+  }
+
+  initDetailModal() {
+    this.detailModalEl = document.getElementById("attendanceDetailModal");
+    if (!this.detailModalEl || typeof bootstrap === "undefined") {
+      return;
+    }
+    this.detailModal = new bootstrap.Modal(this.detailModalEl);
+    this.detailElements = {
+      alert: document.getElementById("attendance-detail-alert"),
+      name: document.getElementById("detail-student-name"),
+      id: document.getElementById("detail-student-id"),
+      className: document.getElementById("detail-student-class"),
+      lastCheckIn: document.getElementById("detail-last-checkin"),
+      lastCheckOut: document.getElementById("detail-last-checkout"),
+      totalSessions: document.getElementById("detail-total-sessions"),
+      currentStatus: document.getElementById("detail-current-status"),
+      historyBody: document.getElementById("attendance-history-body"),
+    };
+  }
+
+  bindDetailHandlers() {
+    document.addEventListener("click", (event) => {
+      const detailBtn = event.target.closest(".js-view-details");
+      if (!detailBtn) {
+        return;
+      }
+      const studentId = detailBtn.getAttribute("data-student-id");
+      const studentName = detailBtn.getAttribute("data-student-name") || "N/A";
+      this.openAttendanceDetail(studentId, studentName);
+    });
+  }
+
+  async openAttendanceDetail(studentId, fallbackName) {
+    if (!this.detailModal) {
+      console.warn("Attendance detail modal is not configured");
+      return;
+    }
+    if (!studentId) {
+      alert("Không tìm thấy mã sinh viên cho bản ghi này");
+      return;
+    }
+
+    this.updateDetailHeader(fallbackName || "N/A", studentId, null);
+    this.setDetailAlert();
+    this.setDetailLoading(true);
+    this.detailModal.show();
+
+    try {
+      const response = await fetch(
+        `/api/attendance/history/${encodeURIComponent(
+          studentId
+        )}?t=${Date.now()}`,
+        { headers: { "Cache-Control": "no-cache" } }
+      );
+      if (!response.ok) {
+        throw new Error("Không thể tải lịch sử điểm danh");
+      }
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || "Không thể tải lịch sử điểm danh");
+      }
+      this.updateDetailHeader(
+        data.student_name || fallbackName,
+        data.student_id || studentId,
+        data.class_name
+      );
+      this.updateDetailSummary(data.summary || {});
+      this.renderAttendanceHistory(data.history || []);
+    } catch (error) {
+      this.renderAttendanceHistory([]);
+      this.setDetailAlert(error.message || "Không thể tải dữ liệu");
+    } finally {
+      this.setDetailLoading(false);
+    }
+  }
+
+  updateDetailHeader(name, studentId, className) {
+    if (!this.detailElements.name) {
+      return;
+    }
+    this.detailElements.name.textContent = name || "---";
+    if (this.detailElements.id) {
+      this.detailElements.id.textContent = `MSSV: ${studentId || "---"}`;
+    }
+    if (this.detailElements.className) {
+      this.detailElements.className.textContent = className || "Chưa rõ lớp";
+    }
+  }
+
+  updateDetailSummary(summary = {}) {
+    if (!this.detailElements.totalSessions) {
+      return;
+    }
+    this.detailElements.totalSessions.textContent = summary.total_sessions || 0;
+    if (this.detailElements.lastCheckIn) {
+      this.detailElements.lastCheckIn.textContent = summary.last_check_in
+        ? this.formatDateTime(summary.last_check_in)
+        : "--";
+    }
+    if (this.detailElements.lastCheckOut) {
+      this.detailElements.lastCheckOut.textContent = summary.last_check_out
+        ? this.formatDateTime(summary.last_check_out)
+        : "--";
+    }
+    if (this.detailElements.currentStatus) {
+      this.detailElements.currentStatus.textContent =
+        summary.current_status || "--";
+      const badgeClass = summary.status_class || "bg-info";
+      this.detailElements.currentStatus.className = `badge ${badgeClass}`;
+    }
+  }
+
+  renderAttendanceHistory(history = []) {
+    if (!this.detailElements.historyBody) {
+      return;
+    }
+    if (!history.length) {
+      this.detailElements.historyBody.innerHTML =
+        '<tr><td colspan="5" class="text-center text-muted">Không có dữ liệu lịch sử.</td></tr>';
+      return;
+    }
+
+    const rows = history
+      .map((item) => {
+        const dateLabel = this.escapeHtml(item.attendance_date || "--");
+        const checkIn = item.check_in_time
+          ? this.formatDateTime(item.check_in_time)
+          : "--";
+        const checkOut = item.check_out_time
+          ? this.formatDateTime(item.check_out_time)
+          : "--";
+        const notes = this.escapeHtml(item.notes || "--");
+        return `
+          <tr>
+            <td>${dateLabel}</td>
+            <td>${checkIn}</td>
+            <td>${checkOut}</td>
+            <td>${this.formatDuration(item.duration_minutes)}</td>
+            <td>${notes}</td>
+          </tr>`;
+      })
+      .join("");
+
+    this.detailElements.historyBody.innerHTML = rows;
+  }
+
+  setDetailLoading(isLoading) {
+    if (!this.detailElements.historyBody) {
+      return;
+    }
+    if (isLoading) {
+      this.detailElements.historyBody.innerHTML =
+        '<tr><td colspan="5" class="text-center text-muted">Đang tải...</td></tr>';
+    }
+  }
+
+  setDetailAlert(message = "") {
+    if (!this.detailElements.alert) {
+      return;
+    }
+    if (!message) {
+      this.detailElements.alert.classList.add("d-none");
+      this.detailElements.alert.textContent = "";
+      return;
+    }
+    this.detailElements.alert.textContent = message;
+    this.detailElements.alert.classList.remove("d-none");
+  }
+
+  async fetchJson(url, options) {
+    const response = await fetch(url, options);
+    let payload = {};
+    try {
+      payload = await response.json();
+    } catch (error) {
+      payload = {};
+    }
+    const failed = !response.ok || (payload && payload.success === false);
+    if (failed) {
+      const message =
+        (payload && (payload.message || payload.error)) ||
+        response.statusText ||
+        "Không thể tải dữ liệu";
+      throw new Error(message);
+    }
+    return payload;
+  }
+
+  formatDuration(minutes) {
+    const totalMinutes = Number(minutes);
+    if (Number.isNaN(totalMinutes) || totalMinutes < 0) {
+      return "0 phút";
+    }
+    if (totalMinutes >= 60) {
+      const hours = Math.floor(totalMinutes / 60);
+      const mins = Math.round(totalMinutes % 60);
+      return `${hours}h ${mins}p`;
+    }
+    return `${Math.round(totalMinutes)} phút`;
+  }
+
+  formatTime(value) {
+    if (!value || typeof value !== "string") {
+      return "N/A";
+    }
+    if (value.length >= 19) {
+      return value.substring(11, 19);
+    }
+    return value;
+  }
+
+  escapeHtml(value = "") {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  formatDateTime(value) {
+    if (!value) {
+      return "--";
+    }
+    const dateObj = new Date(value);
+    if (Number.isNaN(dateObj.getTime())) {
+      return value;
+    }
+    return `${dateObj.toLocaleDateString("vi-VN")} ${dateObj.toLocaleTimeString(
+      "vi-VN"
+    )}`;
   }
 }
-
-// Initialize camera controls when DOM is loaded
-document.addEventListener("DOMContentLoaded", function () {
-  new CameraControls();
-});

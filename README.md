@@ -347,6 +347,22 @@ $env:DEMO_MODE="1"
 .\.venv\Scripts\python.exe app.py
 ```
 
+## 🪟 Win Console Demo Script
+
+`win_console.py` cung cấp một giao diện Tkinter đơn giản để chạy nhận diện khuôn mặt trực tiếp trên Windows mà không cần mở trang web.
+
+1. Kích hoạt virtualenv và đảm bảo đã cài các thư viện tối thiểu: `pip install -r requirements.txt` (nếu muốn nhận diện thật cần thêm `face-recognition` + `dlib`).
+2. Chuẩn bị ảnh mẫu trong thư mục `data/` theo định dạng `MSSV_HoTen.jpg` để script tự nạp.
+3. Chạy script:
+
+```powershell
+.\.venv\Scripts\python.exe win_console.py
+```
+
+4. Nhấn **Start** để bật camera, script sẽ hiển thị các lần nhận diện thành công trong danh sách sự kiện.
+
+> Lưu ý: nếu chưa cài `face_recognition`, script vẫn chạy ở chế độ demo và chỉ hiển thị dấu thời gian.
+
 ## 🌐 Truy cập ứng dụng
 
 Mở trình duyệt và truy cập: **http://localhost:5000**

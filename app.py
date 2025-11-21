@@ -5,7 +5,20 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 # Flask imports
-from flask import Flask, render_template, Response, redirect, url_for, request, jsonify
+from flask import (
+    Flask,
+    render_template,
+    Response,
+    redirect,
+    url_for,
+    request,
+    jsonify,
+    session,
+    flash,
+    g,
+    abort,
+    stream_with_context,
+)
 
 # Standard library imports
 import os
@@ -14,8 +27,10 @@ import time
 import random
 import base64
 from pathlib import Path
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import threading
+import hashlib
+from functools import wraps
 # Note: use threading.Thread / threading.Lock via the threading module to avoid
 # duplicate unused names in the module namespace.
 
@@ -23,6 +38,7 @@ import threading
 import cv2
 import numpy as np
 from werkzeug.utils import secure_filename
+from werkzeug.security import check_password_hash, generate_password_hash
 try:
     from PIL import Image
     PIL_AVAILABLE = True
@@ -52,6 +68,16 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 # Setup logging
 setup_logging(app)
+
+# Cleanup corrupted legacy class records if present
+LEGACY_CLASS_NAMES = [
+    'Công nghệ thông tin 01',
+    'Công nghệ thông tin 01',
+]
+for legacy_name in LEGACY_CLASS_NAMES:
+    removed = db.delete_class_by_name(legacy_name)
+    if removed:
+        app.logger.info("Removed legacy class entry: %s (records: %s)", legacy_name, removed)
 
 # Cấu hình chế độ demo (sử dụng os.getenv sau khi load_dotenv)
 DEMO_MODE = os.getenv('DEMO_MODE', '0') == '1'
@@ -162,6 +188,7 @@ FRONTAL_ROLL_DEG_THRESHOLD = float(os.getenv('FRONTAL_ROLL_DEG_THRESHOLD', '15')
 # Tối ưu hiệu năng phát hiện
 YOLO_FRAME_SKIP = max(1, int(os.getenv('YOLO_FRAME_SKIP', '2')))  # Chỉ chạy YOLO mỗi N khung hình
 YOLO_INFERENCE_WIDTH = int(os.getenv('YOLO_INFERENCE_WIDTH', '640'))  # Resize YOLO, 0 = giữ nguyên
+SESSION_DURATION_MINUTES = max(1, int(os.getenv('SESSION_DURATION_MINUTES', '15')))
 
 # Đường dẫn thư mục dữ liệu
 DATA_DIR = Path('data')
@@ -181,6 +208,10 @@ today_checked_in = set()  # student_ids đã check-in
 today_checked_out = set()  # student_ids đã checkout
 today_student_names = {}  # student_id -> name
 today_recorded_lock = threading.Lock()
+
+# Bộ nhớ đệm phiên điểm danh tín chỉ
+current_credit_session = None
+current_session_lock = threading.Lock()
 
 # Theo dõi thời gian có mặt
 presence_tracking = {}  # {student_id: {'last_seen': datetime, 'total_time': seconds}}
@@ -204,6 +235,403 @@ REQUIRED_FRAMES = 30  # Legacy fallback - not used for time-based confirmation
 import queue
 sse_clients = []  # List of queues for each connected SSE client
 sse_clients_lock = threading.Lock()
+
+
+def parse_datetime_safe(value):
+    """Chuyển chuỗi datetime thành đối tượng datetime, trả về None nếu lỗi."""
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(value)
+    except (ValueError, TypeError):
+        try:
+            return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return None
+
+
+def get_request_data():
+    """Union form/JSON payload into a mutable dict."""
+    if request.is_json:
+        return request.get_json() or {}
+    if request.form:
+        return request.form.to_dict()
+    return request.get_json(silent=True) or {}
+
+
+def parse_bool(value, default=None):
+    """Convert string/int/bool inputs to boolean values."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    value = str(value).strip().lower()
+    if value in {'1', 'true', 'on', 'yes', 'y'}:
+        return True
+    if value in {'0', 'false', 'off', 'no', 'n'}:
+        return False
+    return default
+
+
+def _session_deadline_raw(session_row):
+    if not session_row:
+        return None
+    return session_row.get('checkin_deadline') or session_row.get('checkout_deadline')
+
+
+def session_is_active(session_row):
+    """Kiểm tra phiên điểm danh còn hiệu lực (status=open và chưa hết hạn)."""
+    if not session_row or session_row.get('status') != 'open':
+        return False
+    expires_at = parse_datetime_safe(_session_deadline_raw(session_row))
+    if expires_at and expires_at <= datetime.now():
+        return False
+    return True
+
+
+def serialize_session_payload(session_row):
+    """Chuyển phiên điểm danh thành payload JSON-friendly."""
+    if not session_row:
+        return None
+    payload = {
+        'id': session_row.get('id'),
+        'credit_class_id': session_row.get('credit_class_id'),
+        'class_name': session_row.get('credit_class_name'),
+        'class_code': session_row.get('credit_code'),
+        'status': session_row.get('status'),
+        'opened_at': session_row.get('opened_at'),
+        'session_date': session_row.get('session_date'),
+        'checkin_deadline': session_row.get('checkin_deadline'),
+        'checkout_deadline': session_row.get('checkout_deadline'),
+        'notes': session_row.get('notes'),
+    }
+    expires_at = parse_datetime_safe(_session_deadline_raw(session_row))
+    payload['expires_at'] = expires_at.isoformat() if expires_at else None
+    if expires_at:
+        payload['remaining_seconds'] = max(int((expires_at - datetime.now()).total_seconds()), 0)
+    else:
+        payload['remaining_seconds'] = None
+    return payload
+
+
+def row_to_dict(row):
+    """Chuyển sqlite3.Row thành dict (nếu có thể)."""
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        return row
+    try:
+        return dict(row)
+    except Exception:
+        return row
+
+
+def get_current_role():
+    user = getattr(g, 'user', None)
+    if not user:
+        return None
+    return (user.get('role') or '').lower()
+
+
+def resolve_teacher_context(teacher_id=None):
+    """Xác định bản ghi giảng viên tương ứng với người dùng hiện tại."""
+    user = getattr(g, 'user', None)
+    if not user:
+        return None
+    role = get_current_role()
+    if role == 'teacher':
+        return row_to_dict(db.get_teacher_by_user(user['id']))
+    if role == 'admin' and teacher_id:
+        return row_to_dict(db.get_teacher(teacher_id))
+    return None
+
+
+def resolve_student_context(student_identifier=None, auto_link=True):
+    """Tìm sinh viên cho user hiện tại hoặc theo student_id được cung cấp."""
+    user = getattr(g, 'user', None)
+    role = get_current_role()
+
+    if student_identifier:
+        return row_to_dict(db.get_student(student_identifier))
+
+    if not user:
+        return None
+
+    if role == 'student':
+        student_row = db.get_student_by_user(user['id'])
+        if student_row:
+            return row_to_dict(student_row)
+
+        username = (user.get('username') or '').strip()
+        if username:
+            student_row = db.get_student(username)
+            if student_row and auto_link:
+                try:
+                    db.link_student_to_user(username, user['id'])
+                except Exception as exc:
+                    app.logger.debug("Không thể tự liên kết sinh viên %s với user %s: %s", username, user['id'], exc)
+            return row_to_dict(student_row)
+
+    if role == 'admin' and student_identifier:
+        return row_to_dict(db.get_student(student_identifier))
+
+    return None
+
+
+def get_active_attendance_session(force_reload=False):
+    """Trả về phiên điểm danh đang mở (và cập nhật cache khi cần)."""
+    global current_credit_session
+    with current_session_lock:
+        if force_reload:
+            current_credit_session = None
+        else:
+            if current_credit_session and not session_is_active(current_credit_session):
+                current_credit_session = None
+
+        try:
+            db.expire_attendance_sessions()
+        except Exception as exc:
+            app.logger.debug("Không thể cập nhật trạng thái phiên: %s", exc)
+
+        if current_credit_session is None:
+            session_row = db.get_current_open_session()
+            current_credit_session = session_row if session_row else None
+
+        if current_credit_session and not session_is_active(current_credit_session):
+            current_credit_session = None
+
+        return current_credit_session
+
+
+def set_active_session_cache(session_row):
+    """Ghi đè cache phiên hiện tại."""
+    global current_credit_session
+    with current_session_lock:
+        current_credit_session = session_row
+        return current_credit_session
+
+
+def broadcast_session_snapshot(force_reload=False):
+    """Phát sự kiện SSE về trạng thái phiên điểm danh hiện tại."""
+    payload = serialize_session_payload(get_active_attendance_session(force_reload=force_reload))
+    broadcast_sse_event({'type': 'session_updated', 'data': payload})
+
+
+PUBLIC_ENDPOINTS = {'login', 'logout', 'static'}
+
+
+def sanitize_next_url(next_url):
+    """Đảm bảo next_url luôn là đường dẫn nội bộ an toàn."""
+    if not next_url:
+        return None
+    next_url = next_url.strip()
+    if not next_url:
+        return None
+    if next_url.startswith(('http://', 'https://', '//')):
+        return None
+    if not next_url.startswith('/'):
+        return None
+    return next_url.rstrip('?') or '/'
+
+
+def build_next_url():
+    """Tạo giá trị next_url dựa trên request hiện tại."""
+    if request.method == 'GET':
+        candidate = request.full_path or request.path
+    else:
+        candidate = request.path
+    return sanitize_next_url(candidate)
+
+
+def is_api_request():
+    """Kiểm tra request hiện tại có thuộc API không."""
+    path = request.path or ''
+    return path.startswith('/api/')
+
+
+def is_public_endpoint(endpoint):
+    """Xác định endpoint có được phép truy cập công khai hay không."""
+    if not endpoint:
+        return False
+    if endpoint == 'static' or endpoint.startswith('static.'):
+        return True
+    return endpoint in PUBLIC_ENDPOINTS
+
+
+def verify_user_password(user_record, candidate_password):
+    """Kiểm tra mật khẩu người dùng (hỗ trợ hash legacy)."""
+    if not user_record:
+        return False
+    stored_hash = user_record.get('password_hash') or ''
+    if not stored_hash:
+        return False
+
+    if stored_hash.startswith(('pbkdf2:', 'scrypt:')):
+        return check_password_hash(stored_hash, candidate_password)
+
+    legacy_hash = hashlib.sha256(candidate_password.encode('utf-8')).hexdigest()
+    if legacy_hash == stored_hash:
+        try:
+            new_hash = generate_password_hash(candidate_password)
+            db.update_user_password(user_record['id'], new_hash)
+            user_record['password_hash'] = new_hash
+            app.logger.info("Đã nâng cấp hash mật khẩu cho người dùng %s", user_record.get('username'))
+        except Exception as exc:
+            app.logger.warning("Không thể nâng cấp hash mật khẩu: %s", exc)
+        return True
+
+    return False
+
+
+def login_user(user_record):
+    """Thiết lập session cho người dùng đã xác thực."""
+    session.clear()
+    session['user_id'] = user_record['id']
+    session['user_role'] = user_record.get('role')
+    session['user_name'] = user_record.get('full_name')
+    session.permanent = True
+
+
+def logout_current_user():
+    """Đăng xuất người dùng hiện tại."""
+    session.clear()
+
+
+def role_required(*roles):
+    """Decorator kiểm tra quyền truy cập dựa trên vai trò."""
+    allowed_roles = {role.lower() for role in roles if role}
+
+    def decorator(view_func):
+        @wraps(view_func)
+        def wrapper(*args, **kwargs):
+            user = getattr(g, 'user', None)
+            if not user:
+                next_url = build_next_url()
+                if is_api_request():
+                    return jsonify({'success': False, 'message': 'Yêu cầu đăng nhập'}), 401
+                if next_url:
+                    return redirect(url_for('login', next=next_url))
+                return redirect(url_for('login'))
+
+            user_role = (user.get('role') or '').lower()
+            if user_role != 'admin' and allowed_roles and user_role not in allowed_roles:
+                app.logger.warning(
+                    "User %s bị chặn truy cập %s (cần %s)",
+                    user.get('username'),
+                    request.path,
+                    ','.join(allowed_roles) or 'any',
+                )
+                if is_api_request():
+                    return jsonify({'success': False, 'message': 'Không có quyền truy cập'}), 403
+                return abort(403)
+
+            return view_func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+@app.before_request
+def load_logged_in_user():
+    """Nạp thông tin người dùng và bảo vệ các route yêu cầu đăng nhập."""
+    user_id = session.get('user_id')
+    g.user = db.get_user_by_id(user_id) if user_id else None
+
+    if is_public_endpoint(request.endpoint):
+        return
+
+    if request.path.startswith('/static/'):
+        return
+
+    if g.user is None:
+        if is_api_request():
+            return jsonify({'success': False, 'message': 'Yêu cầu đăng nhập'}), 401
+        next_url = build_next_url()
+        if next_url:
+            return redirect(url_for('login', next=next_url))
+        return redirect(url_for('login'))
+
+
+@app.context_processor
+def inject_user_context():
+    """Expose current user/role to all templates."""
+    user = getattr(g, 'user', None)
+    role = user.get('role') if isinstance(user, dict) else None
+    return {
+        'current_user': user,
+        'current_role': role,
+    }
+
+
+def safe_delete_file(path):
+    """Attempt to delete a file without raising if it fails."""
+    if not path:
+        return
+    try:
+        os.remove(path)
+    except OSError:
+        app.logger.debug("Could not remove file %s", path)
+
+
+def save_uploaded_face_image(file_storage, student_id, full_name):
+    """Persist an uploaded face image after validation."""
+    if not file_storage or not file_storage.filename:
+        return None
+
+    _, ext = os.path.splitext(file_storage.filename)
+    ext = (ext or '').lower().lstrip('.')
+    if ext not in ALLOWED_EXTENSIONS:
+        raise ValueError(f"Định dạng file không hợp lệ. Chỉ cho phép: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
+
+    safe_base = secure_filename(f"{student_id}_{full_name}".strip()) or secure_filename(student_id) or 'student'
+    timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+    filename = f"{safe_base}_{timestamp}.{ext}"
+    DATA_DIR.mkdir(exist_ok=True)
+    file_path = DATA_DIR / filename
+    file_storage.save(str(file_path))
+
+    success, error_msg, _ = validate_image_file(str(file_path), is_base64=False)
+    if not success:
+        safe_delete_file(str(file_path))
+        raise ValueError(f"Ảnh không hợp lệ: {error_msg}")
+
+    return str(file_path)
+
+
+def serialize_student_record(student_row, class_map=None):
+    """Convert a sqlite3.Row student record to a serializable dict."""
+    if not student_row:
+        return None
+
+    student = dict(student_row)
+    class_id = student.get('class_id')
+    class_name = None
+    if class_id:
+        if class_map is not None:
+            class_name = class_map.get(class_id)
+        else:
+            class_info = db.get_class_by_id(class_id)
+            class_name = class_info.get('class_name') if class_info else None
+
+    return {
+        'id': student.get('id'),
+        'student_id': student.get('student_id'),
+        'full_name': student.get('full_name'),
+        'email': student.get('email'),
+        'phone': student.get('phone'),
+        'class_id': class_id,
+        'class_name': class_name,
+        'face_image_path': student.get('face_image_path'),
+        'status': student.get('status'),
+        'is_active': bool(student.get('is_active')),
+        'created_at': student.get('created_at'),
+        'updated_at': student.get('updated_at'),
+    }
 
 # Khởi tạo camera đơn giản nhất có thể
 def ensure_video_capture():
@@ -508,98 +936,195 @@ def load_today_recorded():
     try:
         attendance_data = db.get_today_attendance()
         for record in attendance_data:
-            student_id = record.get('student_id')
-            name = record.get('student_name') or record.get('full_name')
+            record_dict = dict(record) if not isinstance(record, dict) else record
+            student_id = record_dict.get('student_id')
+            name = record_dict.get('student_name') or record_dict.get('full_name')
+            class_name = record_dict.get('credit_class_name') or record_dict.get('class_name')
+            class_type = 'credit' if record_dict.get('credit_class_id') else 'administrative'
             if not student_id:
                 continue
-            today_student_names[student_id] = name or student_id
-            if record.get('check_in_time'):
+            today_student_names[student_id] = {
+                'name': name or student_id,
+                'class_name': class_name,
+                'class_type': class_type,
+                'credit_class_id': record_dict.get('credit_class_id')
+            }
+            if record_dict.get('check_in_time'):
                 today_checked_in.add(student_id)
-            if record.get('check_out_time'):
+            if record_dict.get('check_out_time'):
                 today_checked_out.add(student_id)
     except Exception as e:
         app.logger.error(f"Error loading today recorded: {e}")
 
 # Lưu điểm danh vào Database
-def mark_attendance(name: str, student_id: str = '', confidence_score: float = None) -> bool:
-    """Lưu điểm danh vào database"""
+def mark_attendance(
+    name: str,
+    student_id: str = '',
+    confidence_score: float = None,
+    expected_student_id: str = None,
+    expected_credit_class_id: int = None,
+) -> bool:
+    """Lưu điểm danh vào database với các ràng buộc tùy chọn."""
+    normalized_student_id = (student_id or '').strip()
+    normalized_expected_id = (expected_student_id or '').strip()
+    if normalized_expected_id and normalized_student_id and normalized_student_id != normalized_expected_id:
+        app.logger.info(
+            "[Attendance] Rejecting check-in: recognized %s but expected %s",
+            normalized_student_id,
+            normalized_expected_id,
+        )
+        return False
     with today_recorded_lock:
-        already_checked_in = student_id in today_checked_in
-        already_checked_out = student_id in today_checked_out
+        already_checked_in = normalized_student_id in today_checked_in
+        already_checked_out = normalized_student_id in today_checked_out
         if already_checked_in and not already_checked_out:
             app.logger.info(f"Sinh vien {name} da check-in va chua checkout")
             return False
     
+    session_ctx = get_active_attendance_session()
+    credit_class_id = session_ctx.get('credit_class_id') if session_ctx else None
+    session_id = session_ctx.get('id') if session_ctx else None
+
+    if expected_credit_class_id is not None:
+        if not session_ctx or int(credit_class_id or 0) != int(expected_credit_class_id):
+            app.logger.info(
+                "[Attendance] Rejecting check-in for %s: session mismatch (expected class %s, active %s)",
+                normalized_student_id or name,
+                expected_credit_class_id,
+                credit_class_id,
+            )
+            return False
+
     success = db.mark_attendance(
-        student_id=student_id,
+        student_id=normalized_student_id or student_id,
         student_name=name,
         status='present',
         confidence_score=confidence_score,
-        notes=None
+        notes=None,
+        credit_class_id=credit_class_id,
+        session_id=session_id
     )
     
     if success:
+        session_payload = serialize_session_payload(session_ctx)
         with today_recorded_lock:
-            today_checked_in.add(student_id)
-            today_checked_out.discard(student_id)
-            today_student_names[student_id] = name
+            today_checked_in.add(normalized_student_id)
+            today_checked_out.discard(normalized_student_id)
+            existing_info = today_student_names.get(normalized_student_id)
+            class_name = None
+            class_type = None
+            credit_ctx = credit_class_id
+            if isinstance(existing_info, dict):
+                class_name = existing_info.get('class_name')
+                class_type = existing_info.get('class_type')
+                credit_ctx = existing_info.get('credit_class_id', credit_ctx)
+            if not class_name and session_payload:
+                class_name = session_payload.get('class_name') or session_payload.get('class_code')
+            if session_payload:
+                class_type = 'credit'
+                credit_ctx = session_payload.get('credit_class_id')
+            today_student_names[normalized_student_id] = {
+                'name': name,
+                'class_name': class_name,
+                'class_type': class_type or 'administrative',
+                'credit_class_id': credit_ctx
+            }
         # Khởi tạo presence tracking
         with presence_tracking_lock:
-            presence_tracking[student_id] = {
+            presence_tracking[normalized_student_id] = {
                 'last_seen': datetime.now(),
                 'check_in_time': datetime.now(),
                 'name': name
             }
-        app.logger.info(f"Da danh dau diem danh: {name} (id={student_id}, confidence={confidence_score})")
+        app.logger.info(
+            f"Da danh dau diem danh: {name} (id={normalized_student_id or student_id}, confidence={confidence_score})"
+        )
         
         broadcast_sse_event({
             'type': 'attendance_marked',
             'data': {
                 'event': 'check_in',
-                'student_id': student_id,
+                'student_id': normalized_student_id or student_id,
                 'student_name': name,
                 'confidence': confidence_score,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now().isoformat(),
+                'session': session_payload
             }
         })
     
     return success
 
 
-def mark_student_checkout(student_id: str, student_name: str = '', reason: str = 'manual', confidence_score: float = None) -> bool:
-    """Đánh dấu checkout cho sinh viên"""
+def mark_student_checkout(
+    student_id: str,
+    student_name: str = '',
+    reason: str = 'manual',
+    confidence_score: float = None,
+    expected_student_id: str = None,
+    expected_credit_class_id: int = None,
+) -> bool:
+    """Đánh dấu checkout cho sinh viên với ràng buộc khuôn mặt/sessions tùy chọn."""
+    normalized_student_id = (student_id or '').strip()
+    normalized_expected_id = (expected_student_id or '').strip()
+    if normalized_expected_id and normalized_student_id and normalized_student_id != normalized_expected_id:
+        app.logger.info(
+            "[Attendance] Rejecting checkout: recognized %s but expected %s",
+            normalized_student_id,
+            normalized_expected_id,
+        )
+        return False
     with today_recorded_lock:
-        already_checked_in = student_id in today_checked_in
-        already_checked_out = student_id in today_checked_out
+        already_checked_in = normalized_student_id in today_checked_in
+        already_checked_out = normalized_student_id in today_checked_out
     
     if not already_checked_in or already_checked_out:
         return False
+
+    if expected_credit_class_id is not None:
+        session_ctx = get_active_attendance_session()
+        credit_class_id = session_ctx.get('credit_class_id') if session_ctx else None
+        if not session_ctx or int(credit_class_id or 0) != int(expected_credit_class_id):
+            app.logger.info(
+                "[Attendance] Rejecting checkout for %s: session mismatch (expected class %s, active %s)",
+                normalized_student_id or student_id,
+                expected_credit_class_id,
+                credit_class_id,
+            )
+            return False
     
-    success = db.mark_checkout(student_id)
+    success = db.mark_checkout(normalized_student_id or student_id)
     if not success:
         return False
     
-    resolved_name = student_name or today_student_names.get(student_id) or student_id
+    existing_info = today_student_names.get(normalized_student_id)
+    if isinstance(existing_info, dict):
+        resolved_name = student_name or existing_info.get('name') or student_id
+    else:
+        resolved_name = student_name or existing_info or student_id
     with today_recorded_lock:
-        today_checked_out.add(student_id)
-        today_student_names[student_id] = resolved_name
+        today_checked_out.add(normalized_student_id)
+        today_student_names[normalized_student_id] = {
+            'name': resolved_name,
+            'class_name': existing_info.get('class_name') if isinstance(existing_info, dict) else None
+        }
     
     with presence_tracking_lock:
-        presence_tracking.pop(student_id, None)
+        presence_tracking.pop(normalized_student_id, None)
     
     broadcast_sse_event({
         'type': 'attendance_checkout',
         'data': {
             'event': 'check_out',
-            'student_id': student_id,
+            'student_id': normalized_student_id or student_id,
             'student_name': resolved_name,
             'confidence': confidence_score,
             'reason': reason,
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat(),
+            'session': serialize_session_payload(get_active_attendance_session())
         }
     })
     
-    app.logger.info(f"Da checkout: {resolved_name} (id={student_id}) - reason={reason}")
+    app.logger.info(f"Da checkout: {resolved_name} (id={normalized_student_id or student_id}) - reason={reason}")
     return True
 
 # Hàm nhận diện khuôn mặt (giống hệt hệ thống mẫu Cong-Nghe-Xu-Ly-Anh)
@@ -690,7 +1215,7 @@ def external_attendance():
     """
     all_data = []
     headers = ["ID", "Name", "Time", "Status", "SourceFile"]
-    external_dir = Path('external_projects') / 'Cong-Nghe-Xu-Ly-Anh' / 'attendance_logs'
+    external_dir = Path('Cong-Nghe-Xu-Ly-Anh') / 'attendance_logs'
 
     search_name = request.args.get('name', '').strip().lower()
     date_filter = request.args.get('date', '')
@@ -757,34 +1282,61 @@ def get_today_attendance():
         attendance_data = db.get_today_attendance()
         # Convert SQLite Row objects to dict
         results = []
+        now = datetime.now()
+
         for row in attendance_data:
             # Tính thời gian có mặt
-            duration_minutes = None
+            duration_minutes = 0
             status_text = "Đang có mặt"
-            
-            if row['check_out_time']:
+
+            check_in = parse_datetime_safe(row['check_in_time'])
+            check_out = parse_datetime_safe(row['check_out_time'])
+            credit_class_id = row.get('credit_class_id')
+            credit_class_name = row.get('credit_class_name')
+            credit_class_code = row.get('credit_class_code')
+            class_type = 'credit' if credit_class_id else 'administrative'
+            base_class_name = row.get('class_name')
+            class_display = credit_class_name or base_class_name
+            if credit_class_id:
+                label_parts = [credit_class_name, credit_class_code]
+                class_display = ' · '.join([part for part in label_parts if part]) or class_display
+
+            if check_in is None:
+                app.logger.warning(
+                    "Attendance row is missing check-in time", extra={"student_id": row['student_id']}
+                )
+                continue
+
+            if check_out:
                 # Đã checkout
-                check_in = datetime.fromisoformat(row['check_in_time'])
-                check_out = datetime.fromisoformat(row['check_out_time'])
-                duration_seconds = (check_out - check_in).total_seconds()
-                duration_minutes = int(duration_seconds / 60)
+                duration_seconds = max((check_out - check_in).total_seconds(), 0)
                 status_text = "Đã rời"
             else:
                 # Chưa checkout - tính từ check_in đến hiện tại
-                check_in = datetime.fromisoformat(row['check_in_time'])
-                duration_seconds = (datetime.now() - check_in).total_seconds()
-                duration_minutes = int(duration_seconds / 60)
-                
+                duration_seconds = max((now - check_in).total_seconds(), 0)
+
                 # Kiểm tra xem có đang được tracking không
                 with presence_tracking_lock:
                     if row['student_id'] not in presence_tracking:
                         status_text = "Không còn phát hiện"
-            
+
+            duration_minutes = int(duration_seconds / 60)
+
+            timestamp_value = check_in.isoformat()
+            checkout_value = check_out.isoformat() if check_out else None
+
             results.append({
                 'student_id': row['student_id'],
                 'full_name': row['student_name'],
-                'timestamp': row['check_in_time'],
-                'checkout_time': row['check_out_time'],
+                'class_name': base_class_name,
+                'class_display': class_display,
+                'class_type': class_type,
+                'credit_class_id': credit_class_id,
+                'credit_class_code': credit_class_code,
+                'credit_class_name': credit_class_name,
+                'session_id': row.get('session_id'),
+                'timestamp': timestamp_value,
+                'checkout_time': checkout_value,
                 'date': row['attendance_date'],
                 'duration_minutes': duration_minutes,
                 'status': status_text
@@ -817,10 +1369,19 @@ def make_placeholder_frame(message: str = "Camera không khả dụng"):
     return buf.tobytes()
 
 # Generator khung hình video
-def generate_frames():
+def generate_frames(
+    expected_student_id: str = None,
+    selected_action: str = 'checkin',
+    enforce_student_match: bool = False,
+    expected_credit_class_id: int = None,
+):
     global video_capture, camera_enabled
     
     app.logger.info("generate_frames() started")
+    enforced_student_id = (expected_student_id or '').strip() if enforce_student_match else None
+    requested_action = (selected_action or 'checkin').lower()
+    if requested_action not in ('checkin', 'checkout'):
+        requested_action = 'auto'
     
     # Nếu camera bị tắt, yield placeholder và KHÔNG khởi tạo camera
     if not camera_enabled:
@@ -992,28 +1553,76 @@ def generate_frames():
                                 last_time = last_recognized.get(student_id)
                                 cooldown_passed = not last_time or (now - last_time).total_seconds() > RECOGNITION_COOLDOWN
 
-                            if not checked_in and cooldown_passed:
-                                try:
-                                    success = mark_attendance(name, student_id=student_id, confidence_score=confidence_score)
-                                    if success:
-                                        status = 'checked_in'
+                            guard_student_id = enforced_student_id if enforce_student_match else None
+                            guard_credit_class = expected_credit_class_id
+                            mismatch = guard_student_id and student_id != guard_student_id
+
+                            if mismatch:
+                                status = 'mismatch'
+                            elif requested_action == 'checkout':
+                                if checked_in and not checked_out and cooldown_passed:
+                                    if mark_student_checkout(
+                                        student_id,
+                                        student_name=name,
+                                        reason='auto',
+                                        confidence_score=confidence_score,
+                                        expected_student_id=guard_student_id,
+                                        expected_credit_class_id=guard_credit_class,
+                                    ):
+                                        status = 'checked_out'
                                         with last_recognized_lock:
                                             last_recognized[student_id] = now
-                                        app.logger.info(f"[+] {student_id} - {name} điểm danh lúc {now.strftime('%Y-%m-%d %H:%M:%S')}")
-                                except Exception as e:
-                                    status = 'error'
-                                    app.logger.error(f"[System] Lỗi điểm danh: {e}")
-                            elif checked_in and not checked_out and cooldown_passed:
-                                if mark_student_checkout(student_id, student_name=name, reason='auto', confidence_score=confidence_score):
+                                    else:
+                                        status = 'already_marked'
+                                elif not checked_in:
+                                    status = 'not_checked_in'
+                                elif checked_out:
                                     status = 'checked_out'
-                                    with last_recognized_lock:
-                                        last_recognized[student_id] = now
                                 else:
-                                    status = 'already_marked'
-                            elif checked_out:
-                                status = 'checked_out'
+                                    status = 'cooldown'
                             else:
-                                status = 'cooldown' if not cooldown_passed else 'already_marked'
+                                if not checked_in and cooldown_passed:
+                                    try:
+                                        success = mark_attendance(
+                                            name,
+                                            student_id=student_id,
+                                            confidence_score=confidence_score,
+                                            expected_student_id=guard_student_id,
+                                            expected_credit_class_id=guard_credit_class,
+                                        )
+                                        if success:
+                                            status = 'checked_in'
+                                            with last_recognized_lock:
+                                                last_recognized[student_id] = now
+                                            app.logger.info(
+                                                f"[+] {student_id} - {name} điểm danh lúc {now.strftime('%Y-%m-%d %H:%M:%S')}"
+                                            )
+                                    except Exception as e:
+                                        status = 'error'
+                                        app.logger.error(f"[System] Lỗi điểm danh: {e}")
+                                elif (
+                                    requested_action == 'auto'
+                                    and checked_in
+                                    and not checked_out
+                                    and cooldown_passed
+                                ):
+                                    if mark_student_checkout(
+                                        student_id,
+                                        student_name=name,
+                                        reason='auto',
+                                        confidence_score=confidence_score,
+                                    ):
+                                        status = 'checked_out'
+                                        with last_recognized_lock:
+                                            last_recognized[student_id] = now
+                                    else:
+                                        status = 'already_marked'
+                                elif checked_in and not checked_out:
+                                    status = 'already_marked'
+                                elif checked_out:
+                                    status = 'checked_out'
+                                else:
+                                    status = 'cooldown' if not cooldown_passed else 'already_marked'
 
                         new_face_data.append({
                             'bbox': (xmin, ymin, xmax, ymax),
@@ -1123,6 +1732,9 @@ def generate_frames():
             elif status == 'checked_out':
                 color = (0, 128, 255)  # Màu xanh dương nhạt cho checkout
                 thickness = 3
+            elif status == 'mismatch':
+                color = (0, 0, 255)  # Màu đỏ cho sai tài khoản
+                thickness = 2
             elif name == "Unknown" or status == 'unknown':
                 color = (0, 0, 255)  # Màu đỏ cho Unknown (không nhận diện được)
                 thickness = 2
@@ -1148,12 +1760,16 @@ def generate_frames():
                 label = f"{name} - THANH CONG!"
             elif status == 'checked_out':
                 label = f"{name} - Da ra ve"
+            elif status == 'mismatch':
+                label = f"{name} - Sai tai khoan"
             elif name == "Unknown":
                 label = "Unknown - Chua dang ky"
             elif status == 'low_confidence':
                 label = f"{name} (Confidence thap: {confidence*100:.1f}%)"
             elif status == 'cooldown':
                 label = f"{name} - Vua diem danh (cho {RECOGNITION_COOLDOWN}s)"
+            elif status == 'not_checked_in':
+                label = f"{name} - Can check-in truoc"
             elif confidence > 0:
                 label = f"{name} ({confidence*100:.1f}%)"
             else:
@@ -1204,6 +1820,46 @@ def generate_frames():
             cap.release()
 
 # Routes
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Trang đăng nhập hệ thống."""
+    next_url = sanitize_next_url(request.args.get('next') or request.form.get('next'))
+
+    if g.get('user'):
+        return redirect(next_url or url_for('index'))
+
+    error = None
+    if request.method == 'POST':
+        username = (request.form.get('username') or '').strip()
+        password = request.form.get('password') or ''
+
+        if not username or not password:
+            error = 'Vui lòng nhập tên đăng nhập và mật khẩu'
+        else:
+            user = db.get_user_by_username(username)
+            if not user or not verify_user_password(user, password):
+                error = 'Tên đăng nhập hoặc mật khẩu không đúng'
+            else:
+                login_user(user)
+                db.update_last_login(user['id'])
+                flash('Đăng nhập thành công', 'success')
+                app.logger.info("User %s đã đăng nhập", user.get('username'))
+                return redirect(next_url or url_for('index'))
+
+    return render_template('login.html', next_url=next_url, error=error, active_page='login')
+
+
+@app.route('/logout')
+def logout():
+    """Đăng xuất người dùng hiện tại."""
+    user = getattr(g, 'user', None)
+    if user:
+        app.logger.info("User %s đã đăng xuất", user.get('username'))
+    logout_current_user()
+    flash('Bạn đã đăng xuất khỏi hệ thống', 'info')
+    return redirect(url_for('login'))
+
+
 @app.route('/')
 def index():
     """Trang chính - điểm danh"""
@@ -1214,12 +1870,41 @@ def index():
                            checked_in=checked_in, checked_out=checked_out)
 
 @app.route('/video_feed')
+@role_required('student')
 def video_feed():
     """Video feed cho camera"""
-    return Response(generate_frames(),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
+    student = resolve_student_context()
+    if not student:
+        abort(403, description='Không tìm thấy hồ sơ sinh viên')
+
+    selected_action = (request.args.get('action') or 'checkin').lower()
+    if selected_action not in ('checkin', 'checkout'):
+        abort(400, description='Hành động không hợp lệ')
+
+    credit_class_id = request.args.get('credit_class_id', type=int)
+    if not credit_class_id:
+        abort(400, description='Thiếu lớp tín chỉ')
+
+    session_row = get_active_attendance_session()
+    active_class_id = session_row.get('credit_class_id') if session_row else None
+    if not session_row or int(active_class_id or 0) != int(credit_class_id):
+        abort(409, description='Lớp tín chỉ này chưa mở phiên điểm danh')
+
+    def frame_stream():
+        yield from generate_frames(
+            expected_student_id=student.get('student_id'),
+            selected_action=selected_action,
+            enforce_student_match=True,
+            expected_credit_class_id=credit_class_id,
+        )
+
+    return Response(
+        stream_with_context(frame_stream()),
+        mimetype='multipart/x-mixed-replace; boundary=frame'
+    )
 
 @app.route('/api/camera/toggle', methods=['POST'])
+@role_required('student')
 def toggle_camera():
     """API bật/tắt camera"""
     global camera_enabled, video_capture
@@ -1248,6 +1933,7 @@ def toggle_camera():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/camera/status', methods=['GET'])
+@role_required('student')
 def camera_status():
     """API kiểm tra trạng thái camera"""
     return jsonify({
@@ -1256,6 +1942,7 @@ def camera_status():
     })
 
 @app.route('/api/camera/capture', methods=['POST'])
+@role_required('student')
 def capture_image():
     """API chụp ảnh từ camera"""
     global video_capture
@@ -1401,6 +2088,7 @@ def api_quick_register():
 
 # Page routes
 @app.route('/students')
+@role_required('admin')
 def students_page():
     """Trang quản lý sinh viên"""
     return render_template('students.html')
@@ -1420,39 +2108,718 @@ def reports_page():
 @app.route('/classes')
 def classes_page():
     """Trang quản lý lớp học"""
-    return render_template('classes.html')
+    try:
+        classes = db.get_all_classes()
+        total_classes = len(classes)
+        total_students = sum(cls.get('student_count', 0) for cls in classes)
+        active_classes = sum(1 for cls in classes if cls.get('is_active', 1))
+
+        attendance_rates = []
+        for cls in classes:
+            try:
+                stats = db.get_class_attendance_stats(cls['id'])
+                attendance_rates.append(stats.get('attendance_rate', 0))
+            except Exception as stats_error:
+                app.logger.debug(
+                    "Could not calculate attendance rate for class %s: %s",
+                    cls.get('id'),
+                    stats_error,
+                )
+
+        avg_attendance = round(sum(attendance_rates) / len(attendance_rates), 2) if attendance_rates else 0
+
+        return render_template(
+            'classes.html',
+            classes=classes,
+            total_classes=total_classes,
+            total_students=total_students,
+            active_classes=active_classes or total_classes,
+            avg_attendance=avg_attendance,
+        )
+    except Exception as error:
+        app.logger.error(f"Error loading classes page: {error}")
+        return render_template(
+            'classes.html',
+            classes=[],
+            total_classes=0,
+            total_students=0,
+            active_classes=0,
+            avg_attendance=0,
+        )
+
+
+@app.route('/teacher/credit-classes')
+@role_required('teacher', 'admin')
+def teacher_credit_classes_page():
+    """Trang dành cho giảng viên theo dõi lớp tín chỉ của mình."""
+    teacher_id = request.args.get('teacher_id', type=int) if get_current_role() == 'admin' else None
+    teacher = resolve_teacher_context(teacher_id)
+    if get_current_role() == 'teacher' and not teacher:
+        flash('Không tìm thấy hồ sơ giảng viên cho tài khoản hiện tại.', 'warning')
+    return render_template(
+        'teacher_credit_classes.html',
+        teacher=teacher,
+        teacher_param=teacher_id,
+        active_page='teacher-classes',
+    )
+
+
+@app.route('/student/portal')
+@role_required('student', 'admin')
+def student_portal_page():
+    """Trang tổng quan cho sinh viên xem lịch học và lịch sử điểm danh."""
+    student_id = request.args.get('student_id') if get_current_role() == 'admin' else None
+    student = resolve_student_context(student_id)
+    if (student_id or get_current_role() == 'student') and not student:
+        flash('Không tìm thấy thông tin sinh viên phù hợp.', 'warning')
+    return render_template(
+        'student_portal.html',
+        student=student,
+        student_param=student_id,
+        active_page='student-portal',
+    )
 
 @app.route('/api/students', methods=['GET'])
+@role_required('admin')
 def api_get_students():
     """API lấy danh sách sinh viên"""
     try:
         students = db.get_all_students(active_only=True)
-        students_list = []
-        for student in students:
-            # Lấy thông tin lớp học nếu có
-            class_name = None
-            if student['class_id']:
-                class_info = db.get_class_by_id(student['class_id'])
-                if class_info:
-                    class_name = class_info.get('class_name')
-            
-            students_list.append({
-                'id': student['id'],
-                'student_id': student['student_id'],
-                'full_name': student['full_name'],
-                'email': student['email'],
-                'phone': student['phone'],
-                'class_id': student['class_id'],
-                'class_name': class_name,
-                'face_image_path': student['face_image_path'],
-                'status': student['status'],
-                'is_active': student['is_active'],
-                'created_at': student['created_at']
-            })
+        class_map = {
+            cls['id']: cls['class_name']
+            for cls in db.get_all_classes()
+        }
+        students_list = [
+            serialize_student_record(student, class_map)
+            for student in students
+        ]
         return jsonify({'success': True, 'data': students_list})
     except Exception as e:
         app.logger.error(f"Error getting students: {e}")
         return jsonify({'success': False, 'data': [], 'error': str(e)}), 500
+
+
+@app.route('/api/students', methods=['POST'])
+@role_required('admin')
+def api_create_student():
+    """API tạo sinh viên mới"""
+    data = get_request_data()
+    student_id = (data.get('student_id') or '').strip()
+    full_name = (data.get('full_name') or '').strip()
+
+    if not student_id or not full_name:
+        return jsonify({'success': False, 'message': 'Mã sinh viên và họ tên là bắt buộc'}), 400
+
+    email = (data.get('email') or '').strip() or None
+    phone = (data.get('phone') or '').strip() or None
+    class_name = (data.get('class_name') or '').strip() or None
+    face_image_path = None
+
+    try:
+        file = request.files.get('face_image') if request.files else None
+        if file and file.filename:
+            face_image_path = save_uploaded_face_image(file, student_id, full_name)
+
+        created = db.add_student(
+            student_id=student_id,
+            full_name=full_name,
+            email=email,
+            phone=phone,
+            class_name=class_name,
+            face_image_path=face_image_path,
+        )
+
+        if not created:
+            safe_delete_file(face_image_path)
+            return jsonify({'success': False, 'message': 'Mã sinh viên đã tồn tại'}), 400
+
+        if face_image_path:
+            load_known_faces()
+
+        student = db.get_student(student_id)
+        return jsonify({'success': True, 'data': serialize_student_record(student)}), 201
+    except ValueError as err:
+        safe_delete_file(face_image_path)
+        return jsonify({'success': False, 'message': str(err)}), 400
+    except Exception as err:
+        app.logger.error(f"Error creating student {student_id}: {err}", exc_info=True)
+        safe_delete_file(face_image_path)
+        return jsonify({'success': False, 'message': 'Không thể tạo sinh viên'}), 500
+
+
+@app.route('/api/students/<student_id>', methods=['GET', 'PUT', 'DELETE'])
+@role_required('admin')
+def api_student_detail(student_id):
+    """API thao tác với sinh viên cụ thể"""
+    student_id = (student_id or '').strip()
+    if not student_id:
+        return jsonify({'success': False, 'message': 'Mã sinh viên không hợp lệ'}), 400
+
+    student = db.get_student(student_id)
+    if not student:
+        return jsonify({'success': False, 'message': 'Không tìm thấy sinh viên'}), 404
+
+    if request.method == 'GET':
+        return jsonify({'success': True, 'data': serialize_student_record(student)})
+
+    if request.method == 'PUT':
+        student_data = dict(student)
+        data = get_request_data()
+        updates = {}
+
+        for field in ('full_name', 'email', 'phone'):
+            if field in data:
+                updates[field] = (data.get(field) or '').strip() or None
+
+        if 'class_name' in data:
+            updates['class_name'] = (data.get('class_name') or '').strip()
+
+        if 'is_active' in data:
+            bool_value = parse_bool(data.get('is_active'))
+            if bool_value is not None:
+                updates['is_active'] = bool_value
+
+        file = request.files.get('face_image') if request.files else None
+        new_face_path = None
+        if file and file.filename:
+            try:
+                new_face_path = save_uploaded_face_image(
+                    file,
+                    student_id,
+                    updates.get('full_name') or student_data.get('full_name'),
+                )
+                updates['face_image_path'] = new_face_path
+            except ValueError as err:
+                return jsonify({'success': False, 'message': str(err)}), 400
+
+        if not updates:
+            safe_delete_file(new_face_path)
+            return jsonify({'success': False, 'message': 'Không có dữ liệu để cập nhật'}), 400
+
+        try:
+            updated = db.update_student(student_id, **updates)
+        except ValueError as err:
+            safe_delete_file(new_face_path)
+            return jsonify({'success': False, 'message': str(err)}), 400
+
+        if not updated:
+            safe_delete_file(new_face_path)
+            return jsonify({'success': False, 'message': 'Không thể cập nhật sinh viên'}), 400
+
+        if new_face_path:
+            previous_face_path = student_data.get('face_image_path')
+            if previous_face_path and previous_face_path != new_face_path:
+                safe_delete_file(previous_face_path)
+            load_known_faces()
+
+        student = db.get_student(student_id)
+        return jsonify({'success': True, 'data': serialize_student_record(student)})
+
+    # DELETE method
+    deleted = db.delete_student(student_id)
+    if not deleted:
+        return jsonify({'success': False, 'message': 'Không thể xóa sinh viên'}), 400
+    return jsonify({'success': True})
+
+
+@app.route('/api/classes', methods=['GET'])
+def api_get_classes():
+    """API lấy danh sách lớp học"""
+    try:
+        classes = db.get_all_classes()
+        for cls in classes:
+            cls['class_type'] = 'administrative'
+        return jsonify({'success': True, 'data': classes})
+    except Exception as e:
+        app.logger.error(f"Error getting classes: {e}")
+        return jsonify({'success': False, 'data': [], 'message': str(e)}), 500
+
+
+@app.route('/api/credit-classes', methods=['GET'])
+def api_get_credit_classes():
+    """API lấy danh sách lớp tín chỉ đang hoạt động."""
+    teacher_only = parse_bool(request.args.get('mine'))
+    teacher_id = None
+    if teacher_only and getattr(g, 'user', None):
+        teacher_row = db.get_teacher_by_user(g.user['id']) if get_current_role() == 'teacher' else None
+        if teacher_row:
+            teacher_id = teacher_row.get('id')
+    try:
+        credit_classes = db.list_credit_classes_overview(teacher_id=teacher_id)
+        for cls in credit_classes:
+            cls['class_type'] = 'credit'
+            cls['display_name'] = ' · '.join(
+                part for part in [cls.get('subject_name'), cls.get('credit_code')] if part
+            ) or cls.get('subject_name') or cls.get('credit_code')
+            cls['student_count'] = cls.get('student_count', 0) or 0
+        return jsonify({'success': True, 'data': credit_classes})
+    except Exception as err:
+        app.logger.error(f"Error getting credit classes: {err}", exc_info=True)
+        return jsonify({'success': False, 'data': [], 'message': 'Không thể tải lớp tín chỉ'}), 500
+
+
+@app.route('/api/teacher/credit-classes', methods=['GET'])
+@role_required('teacher', 'admin')
+def api_teacher_credit_classes():
+    teacher_param = request.args.get('teacher_id', type=int) if get_current_role() == 'admin' else None
+    teacher = resolve_teacher_context(teacher_param)
+    if get_current_role() == 'teacher' and not teacher:
+        return jsonify({'success': False, 'message': 'Không tìm thấy thông tin giảng viên'}), 404
+
+    teacher_filter_id = teacher.get('id') if teacher else None
+    try:
+        credit_classes = db.list_credit_classes_overview(teacher_id=teacher_filter_id)
+        results = []
+        for cls in credit_classes:
+            session_row = db.get_active_session_for_class(cls['id'])
+            payload = dict(cls)
+            payload['class_type'] = 'credit'
+            payload['display_name'] = ' · '.join(
+                part for part in [cls.get('subject_name'), cls.get('credit_code')] if part
+            ) or cls.get('subject_name') or cls.get('credit_code')
+            payload['student_count'] = cls.get('student_count', 0) or 0
+            payload['active_session'] = serialize_session_payload(session_row)
+            results.append(payload)
+
+        return jsonify({
+            'success': True,
+            'data': results,
+            'teacher': teacher,
+        })
+    except Exception as exc:
+        app.logger.error("Error loading teacher credit classes: %s", exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Không thể tải danh sách lớp'}), 500
+
+
+@app.route('/api/teacher/credit-classes/<int:credit_class_id>/students', methods=['GET'])
+@role_required('teacher', 'admin')
+def api_teacher_credit_class_students(credit_class_id):
+    teacher_param = request.args.get('teacher_id', type=int) if get_current_role() == 'admin' else None
+    teacher = resolve_teacher_context(teacher_param)
+    credit_class = db.get_credit_class(credit_class_id)
+    if not credit_class:
+        return jsonify({'success': False, 'message': 'Không tìm thấy lớp tín chỉ'}), 404
+    if teacher and credit_class.get('teacher_id') and credit_class.get('teacher_id') != teacher.get('id'):
+        return jsonify({'success': False, 'message': 'Không có quyền truy cập lớp này'}), 403
+
+    try:
+        roster = db.get_credit_class_students(credit_class_id)
+        # Lấy dữ liệu điểm danh hôm nay để xác định trạng thái từng sinh viên
+        today_attendance = db.get_today_attendance() or []
+        present_map = {}
+        for a in today_attendance:
+            try:
+                sid = a.get('student_id')
+            except Exception:
+                sid = None
+            if not sid:
+                continue
+            # if credit_class_id present on attendance record, map per-class
+            if a.get('credit_class_id') and int(a.get('credit_class_id')) == int(credit_class_id):
+                present_map[sid] = {
+                    'check_in_time': a.get('check_in_time'),
+                    'check_out_time': a.get('check_out_time'),
+                    'attendance_id': a.get('id')
+                }
+        class_map = {}
+        serialized = []
+        for student in roster:
+            class_id = student.get('class_id')
+            if class_id and class_id not in class_map:
+                class_info = db.get_class_by_id(class_id)
+                if class_info:
+                    class_map[class_id] = class_info.get('class_name')
+            srec = serialize_student_record(student, class_map)
+            # Gắn trạng thái điểm danh hôm nay (nếu có) cho lớp tín chỉ này
+            student_code = srec.get('student_id')
+            att = present_map.get(student_code)
+            if att:
+                srec['is_present_today'] = True
+                srec['checked_out'] = bool(att.get('check_out_time'))
+                srec['attendance_id'] = att.get('attendance_id')
+                srec['check_in_time'] = att.get('check_in_time')
+            else:
+                srec['is_present_today'] = False
+                srec['checked_out'] = False
+                srec['attendance_id'] = None
+                srec['check_in_time'] = None
+            serialized.append(srec)
+
+        return jsonify({
+            'success': True,
+            'credit_class': dict(credit_class),
+            'students': serialized,
+            'count': len(serialized),
+        })
+    except Exception as exc:
+        app.logger.error("Error loading roster for credit class %s: %s", credit_class_id, exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Không thể tải danh sách sinh viên'}), 500
+
+
+@app.route('/api/teacher/credit-classes/<int:credit_class_id>/sessions', methods=['GET'])
+@role_required('teacher', 'admin')
+def api_teacher_credit_class_sessions(credit_class_id):
+    teacher_param = request.args.get('teacher_id', type=int) if get_current_role() == 'admin' else None
+    teacher = resolve_teacher_context(teacher_param)
+    credit_class = db.get_credit_class(credit_class_id)
+    if not credit_class:
+        return jsonify({'success': False, 'message': 'Không tìm thấy lớp tín chỉ'}), 404
+    if teacher and credit_class.get('teacher_id') and credit_class.get('teacher_id') != teacher.get('id'):
+        return jsonify({'success': False, 'message': 'Không có quyền truy cập lớp này'}), 403
+
+    limit = request.args.get('limit', 20, type=int) or 20
+    limit = max(5, min(limit, 100))
+    try:
+        sessions = db.list_sessions_for_class(credit_class_id, limit=limit)
+        serialized = [serialize_session_payload(row) for row in sessions]
+        return jsonify({'success': True, 'credit_class': dict(credit_class), 'sessions': serialized})
+    except Exception as exc:
+        app.logger.error("Error loading sessions for credit class %s: %s", credit_class_id, exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Không thể tải phiên điểm danh'}), 500
+
+
+@app.route('/api/student/credit-classes', methods=['GET'])
+@role_required('student', 'admin')
+def api_student_credit_classes():
+    student_param = request.args.get('student_id') if get_current_role() == 'admin' else None
+    student = resolve_student_context(student_param)
+    if not student:
+        return jsonify({'success': False, 'message': 'Không tìm thấy sinh viên'}), 404
+
+    try:
+        classes = db.get_credit_classes_for_student(student.get('student_id'))
+        formatted = []
+        active_sessions = 0
+        for cls in classes:
+            session_row = db.get_active_session_for_class(cls['id'])
+            if session_row:
+                active_sessions += 1
+            entry = dict(cls)
+            entry['display_name'] = ' · '.join(
+                part for part in [cls.get('subject_name'), cls.get('credit_code')] if part
+            ) or cls.get('subject_name') or cls.get('credit_code')
+            entry['active_session'] = serialize_session_payload(session_row)
+            formatted.append(entry)
+
+        summary = {
+            'total_classes': len(formatted),
+            'active_sessions': active_sessions,
+        }
+
+        return jsonify({
+            'success': True,
+            'student': {
+                'student_id': student.get('student_id'),
+                'full_name': student.get('full_name'),
+                'email': student.get('email'),
+                'class_id': student.get('class_id'),
+            },
+            'classes': formatted,
+            'summary': summary,
+        })
+    except Exception as exc:
+        app.logger.error("Error loading credit classes for student %s: %s", student.get('student_id'), exc, exc_info=True)
+        return jsonify({'success': False, 'message': 'Không thể tải danh sách lớp tín chỉ'}), 500
+
+
+@app.route('/api/classes', methods=['POST'])
+def api_create_class():
+    """API tạo lớp học mới"""
+    data = get_request_data()
+    class_code = (data.get('class_code') or '').strip()
+    class_name = (data.get('class_name') or '').strip()
+
+    if not class_code or not class_name:
+        return jsonify({'success': False, 'message': 'Mã lớp và tên lớp là bắt buộc'}), 400
+
+    try:
+        class_id = db.create_class(
+            class_code=class_code,
+            class_name=class_name,
+            semester=data.get('semester'),
+            academic_year=data.get('academic_year'),
+            teacher_name=data.get('teacher_name'),
+            description=data.get('description'),
+        )
+        created_class = db.get_class_by_id(class_id)
+        return jsonify({'success': True, 'data': created_class}), 201
+    except ValueError as conflict:
+        return jsonify({'success': False, 'message': str(conflict)}), 400
+    except Exception as e:
+        app.logger.error(f"Error creating class: {e}")
+        return jsonify({'success': False, 'message': 'Không thể tạo lớp học'}), 500
+
+
+@app.route('/api/classes/<int:class_id>', methods=['GET', 'PUT', 'DELETE'])
+def api_class_detail(class_id):
+    """API lấy/cập nhật/xóa lớp học"""
+    if request.method == 'GET':
+        class_data = db.get_class_by_id(class_id)
+        if not class_data:
+            return jsonify({'success': False, 'message': 'Không tìm thấy lớp học'}), 404
+        class_data = dict(class_data)
+        students = db.get_students_by_class(class_id)
+        class_data['student_count'] = len(students)
+        return jsonify({'success': True, 'data': class_data})
+
+    if request.method == 'PUT':
+        data = get_request_data()
+        updates = {k: v for k, v in data.items() if v not in (None, '')}
+        try:
+            updated = db.update_class(class_id, **updates)
+            if not updated:
+                return jsonify({'success': False, 'message': 'Không thể cập nhật lớp học'}), 400
+            return jsonify({'success': True, 'data': db.get_class_by_id(class_id)})
+        except Exception as e:
+            app.logger.error(f"Error updating class {class_id}: {e}")
+            return jsonify({'success': False, 'message': 'Lỗi khi cập nhật lớp học'}), 500
+
+    try:
+        deleted = db.delete_class(class_id)
+        if not deleted:
+            return jsonify({'success': False, 'message': 'Không thể xóa lớp học'}), 400
+        return jsonify({'success': True})
+    except Exception as e:
+        app.logger.error(f"Error deleting class {class_id}: {e}")
+        return jsonify({'success': False, 'message': 'Lỗi khi xóa lớp học'}), 500
+
+
+@app.route('/api/classes/<int:class_id>/students', methods=['GET'])
+def api_class_students(class_id):
+    """API danh sách sinh viên trong lớp"""
+    class_data = db.get_class_by_id(class_id)
+    if not class_data:
+        return jsonify({'success': False, 'message': 'Không tìm thấy lớp học'}), 404
+
+    try:
+        students = db.get_students_by_class(class_id)
+        serialized = [serialize_student_record(student) for student in students]
+        return jsonify({
+            'success': True,
+            'class': class_data,
+            'data': serialized,
+        })
+    except Exception as error:
+        app.logger.error(f"Error getting students for class {class_id}: {error}")
+        return jsonify({'success': False, 'message': 'Không thể tải danh sách sinh viên'}), 500
+
+
+@app.route('/api/classes/<int:class_id>/stats', methods=['GET'])
+def api_class_stats(class_id):
+    """API thống kê lớp học"""
+    class_data = db.get_class_by_id(class_id)
+    if not class_data:
+        return jsonify({'success': False, 'message': 'Không tìm thấy lớp học'}), 404
+
+    try:
+        stats = db.get_class_attendance_stats(class_id)
+        if not stats:
+            stats = {}
+        stats_payload = {
+            'total_students': stats.get('total_students', 0),
+            'attended_students': stats.get('attended_students', 0),
+            'attendance_rate': stats.get('attendance_rate', 0),
+            'daily_stats': stats.get('daily_stats', []),
+            'period': stats.get('period'),
+        }
+        return jsonify({'success': True, 'class': class_data, 'stats': stats_payload})
+    except Exception as error:
+        app.logger.error(f"Error getting stats for class {class_id}: {error}")
+        return jsonify({'success': False, 'message': 'Không thể tải thống kê lớp học'}), 500
+
+
+@app.route('/api/attendance/session', methods=['GET'])
+def api_get_attendance_session():
+    """Trạng thái phiên điểm danh tín chỉ hiện tại."""
+    session_row = get_active_attendance_session()
+    return jsonify({
+        'success': True,
+        'session': serialize_session_payload(session_row),
+        'default_duration': SESSION_DURATION_MINUTES,
+    })
+
+
+@app.route('/api/attendance/session/open', methods=['POST'])
+@role_required('teacher')
+def api_open_attendance_session():
+    data = get_request_data()
+    credit_class_id = data.get('credit_class_id')
+    if not credit_class_id:
+        return jsonify({'success': False, 'message': 'Vui lòng chọn lớp tín chỉ'}), 400
+
+    try:
+        credit_class_id = int(credit_class_id)
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'message': 'Mã lớp tín chỉ không hợp lệ'}), 400
+
+    if get_active_attendance_session():
+        return jsonify({'success': False, 'message': 'Đã có phiên điểm danh đang mở'}), 400
+
+    teacher_ctx = resolve_teacher_context()
+    if not teacher_ctx:
+        return jsonify({'success': False, 'message': 'Không tìm thấy thông tin giảng viên'}), 403
+
+    credit_class = db.get_credit_class(credit_class_id)
+    if not credit_class or not credit_class.get('is_active', 1):
+        return jsonify({'success': False, 'message': 'Không tìm thấy lớp tín chỉ'}), 404
+
+    owner_id = credit_class.get('teacher_id')
+    if not owner_id or int(owner_id) != int(teacher_ctx.get('id')):
+        return jsonify({'success': False, 'message': 'Lớp tín chỉ không thuộc quyền quản lý của bạn'}), 403
+
+    duration_minutes = data.get('duration_minutes')
+    try:
+        duration_minutes = int(duration_minutes) if duration_minutes is not None else SESSION_DURATION_MINUTES
+    except (ValueError, TypeError):
+        duration_minutes = SESSION_DURATION_MINUTES
+    duration_minutes = max(1, min(duration_minutes, 90))
+
+    now = datetime.now()
+    deadline = (now + timedelta(minutes=duration_minutes)).isoformat()
+
+    try:
+        session_id = db.create_attendance_session(
+            credit_class_id=credit_class_id,
+            opened_by=g.user['id'] if getattr(g, 'user', None) else None,
+            session_date=now.date().isoformat(),
+            checkin_deadline=deadline,
+            checkout_deadline=deadline,
+            status='open',
+            notes=data.get('notes')
+        )
+        session_row = db.get_session_by_id(session_id)
+        set_active_session_cache(session_row)
+        payload = serialize_session_payload(session_row)
+        broadcast_session_snapshot()
+        return jsonify({'success': True, 'session': payload})
+    except ValueError as err:
+        return jsonify({'success': False, 'message': str(err)}), 400
+    except Exception as exc:
+        app.logger.error(f"Error opening attendance session: {exc}", exc_info=True)
+        return jsonify({'success': False, 'message': 'Không thể mở phiên điểm danh'}), 500
+
+
+@app.route('/api/attendance/session/close', methods=['POST'])
+@role_required('admin', 'teacher')
+def api_close_attendance_session():
+    data = get_request_data()
+    session_id = data.get('session_id')
+    if session_id:
+        try:
+            session_id = int(session_id)
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'message': 'Mã phiên không hợp lệ'}), 400
+    else:
+        current_session = get_active_attendance_session()
+        if not current_session:
+            return jsonify({'success': False, 'message': 'Không có phiên nào đang mở'}), 400
+        session_id = current_session.get('id')
+
+    try:
+        closed = db.close_attendance_session(session_id)
+        if not closed:
+            return jsonify({'success': False, 'message': 'Không thể đóng phiên'}), 400
+        set_active_session_cache(None)
+        broadcast_session_snapshot(force_reload=True)
+        payload = serialize_session_payload(db.get_session_by_id(session_id))
+        return jsonify({'success': True, 'session': payload})
+    except Exception as exc:
+        app.logger.error(f"Error closing attendance session {session_id}: {exc}", exc_info=True)
+        return jsonify({'success': False, 'message': 'Không thể đóng phiên điểm danh'}), 500
+
+
+@app.route('/api/attendance/session/<int:session_id>/mark', methods=['POST'])
+@role_required('teacher', 'admin')
+def api_mark_attendance_for_session(session_id):
+    """Cho phép giảng viên (hoặc admin) điểm danh/checkout thủ công cho một phiên cụ thể."""
+    data = get_request_data()
+    student_code = data.get('student_id') or data.get('student_code')
+    action = (data.get('action') or 'checkin').lower()
+
+    if not student_code:
+        return jsonify({'success': False, 'message': 'Missing student_id'}), 400
+
+    session_row = db.get_session_by_id(session_id)
+    if not session_row:
+        return jsonify({'success': False, 'message': 'Session not found'}), 404
+
+    credit_class = db.get_credit_class(session_row.get('credit_class_id'))
+    if not credit_class:
+        return jsonify({'success': False, 'message': 'Credit class not found'}), 404
+
+    # Authorization: teacher can only mark for their own classes
+    if get_current_role() == 'teacher':
+        teacher_ctx = resolve_teacher_context()
+        if not teacher_ctx or int(credit_class.get('teacher_id') or 0) != int(teacher_ctx.get('id')):
+            return jsonify({'success': False, 'message': 'Không có quyền trên lớp này'}), 403
+
+    # Resolve student
+    student_row = db.get_student(student_code)
+    if not student_row:
+        return jsonify({'success': False, 'message': 'Không tìm thấy sinh viên'}), 404
+    student_name = student_row.get('full_name') or student_code
+
+    try:
+        if action in ('checkin', 'mark', 'present'):
+            success = db.mark_attendance(
+                student_id=student_code,
+                student_name=student_name,
+                status='present',
+                confidence_score=None,
+                notes='manual by teacher',
+                credit_class_id=credit_class.get('id'),
+                session_id=session_id,
+            )
+            if success:
+                with today_recorded_lock:
+                    today_checked_in.add(student_code)
+                    today_checked_out.discard(student_code)
+                    today_student_names[student_code] = {
+                        'name': student_name,
+                        'class_name': credit_class.get('subject_name') or credit_class.get('credit_code'),
+                        'class_type': 'credit',
+                        'credit_class_id': credit_class.get('id'),
+                    }
+
+                broadcast_sse_event({
+                    'type': 'attendance_marked',
+                    'data': {
+                        'event': 'check_in',
+                        'student_id': student_code,
+                        'student_name': student_name,
+                        'timestamp': datetime.now().isoformat(),
+                        'session': serialize_session_payload(session_row),
+                    },
+                })
+                return jsonify({'success': True})
+            return jsonify({'success': False, 'message': 'Không thể điểm danh (có thể đã điểm danh trước đó)'}), 400
+
+        elif action in ('checkout', 'check_out'):
+            success = db.mark_checkout(student_code)
+            if success:
+                with today_recorded_lock:
+                    today_checked_out.add(student_code)
+
+                broadcast_sse_event({
+                    'type': 'attendance_checkout',
+                    'data': {
+                        'event': 'check_out',
+                        'student_id': student_code,
+                        'student_name': student_name,
+                        'timestamp': datetime.now().isoformat(),
+                        'session': serialize_session_payload(session_row),
+                    },
+                })
+                return jsonify({'success': True})
+            return jsonify({'success': False, 'message': 'Không thể checkout hoặc chưa điểm danh'}), 400
+
+        else:
+            return jsonify({'success': False, 'message': 'Hành động không hợp lệ'}), 400
+
+    except Exception as exc:
+        app.logger.error(f"Error in manual mark endpoint: {exc}", exc_info=True)
+        return jsonify({'success': False, 'message': 'Lỗi khi thực hiện điểm danh'}), 500
+
 
 @app.route('/api/statistics')
 def api_statistics():
@@ -1533,11 +2900,109 @@ def api_attendance_today():
             'success': True,
             'data': attendance_data,
             'checked_in': checked_in,
-            'checked_out': checked_out
+            'checked_out': checked_out,
+            'session': serialize_session_payload(get_active_attendance_session())
         })
     except Exception as e:
         app.logger.error(f"Error getting today's attendance: {e}")
         return jsonify({'success': False, 'data': [], 'error': str(e)}), 500
+
+
+@app.route('/api/attendance/history/<student_id>', methods=['GET'])
+def api_attendance_history(student_id):
+    """API trả về lịch sử điểm danh gần đây của một sinh viên"""
+    limit = request.args.get('limit', 10, type=int) or 10
+    limit = max(1, min(limit, 50))
+
+    try:
+        history_rows = db.get_student_attendance_history(student_id, limit) or []
+        student_info = db.get_student(student_id)
+
+        if not history_rows and not student_info:
+            return jsonify({'success': False, 'error': 'Không tìm thấy sinh viên'}), 404
+
+        class_name = None
+        student_name = None
+
+        if student_info:
+            student_info_dict = dict(student_info)
+            student_name = student_info_dict.get('full_name') or student_info_dict.get('name')
+            class_id = student_info_dict.get('class_id')
+            if class_id:
+                class_info = db.get_class_by_id(class_id)
+                if class_info:
+                    class_info_dict = dict(class_info)
+                    class_name = class_info_dict.get('class_name') or class_info_dict.get('name')
+
+        history = []
+        now = datetime.now()
+        status_class_map = {
+            'present': 'bg-success',
+            'late': 'bg-warning text-dark',
+            'absent': 'bg-danger',
+            'excused': 'bg-info text-dark'
+        }
+
+        summary = {
+            'total_sessions': len(history_rows),
+            'last_check_in': None,
+            'last_check_out': None,
+            'current_status': None,
+            'status_class': 'bg-secondary'
+        }
+
+        for index, row in enumerate(history_rows):
+            row_dict = dict(row)
+            check_in = parse_datetime_safe(row_dict.get('check_in_time'))
+            check_out = parse_datetime_safe(row_dict.get('check_out_time'))
+
+            # Nếu bảng attendance có lưu tên lớp trực tiếp
+            if not class_name and row_dict.get('class_name'):
+                class_name = row_dict.get('class_name')
+
+            if not student_name:
+                student_name = row_dict.get('student_name') or row_dict.get('full_name')
+
+            if check_in and check_out:
+                duration_seconds = max((check_out - check_in).total_seconds(), 0)
+            elif check_in:
+                duration_seconds = max((now - check_in).total_seconds(), 0)
+            else:
+                duration_seconds = 0
+
+            record = {
+                'attendance_date': row_dict.get('attendance_date'),
+                'check_in_time': row_dict.get('check_in_time'),
+                'check_out_time': row_dict.get('check_out_time'),
+                'status': row_dict.get('status'),
+                'duration_minutes': int(duration_seconds / 60),
+                'notes': row_dict.get('notes'),
+                'class_type': 'credit' if row_dict.get('credit_class_id') else 'administrative',
+                'class_display': row_dict.get('credit_class_name') or row_dict.get('class_name'),
+                'credit_class_code': row_dict.get('credit_class_code'),
+                'credit_class_id': row_dict.get('credit_class_id')
+            }
+            history.append(record)
+
+            if index == 0:
+                summary['last_check_in'] = row_dict.get('check_in_time')
+                summary['last_check_out'] = row_dict.get('check_out_time')
+                summary['current_status'] = row_dict.get('status')
+                summary['status_class'] = status_class_map.get(row_dict.get('status'), 'bg-secondary')
+
+        response_payload = {
+            'success': True,
+            'student_id': student_id,
+            'student_name': student_name or student_id,
+            'class_name': class_name,
+            'summary': summary,
+            'history': history
+        }
+
+        return jsonify(response_payload)
+    except Exception as e:
+        app.logger.error(f"Error getting attendance history for {student_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/events/stream')
@@ -1552,6 +3017,13 @@ def api_events_stream():
         # Thêm vào danh sách clients
         with sse_clients_lock:
             sse_clients.append(client_queue)
+
+        initial_session = serialize_session_payload(get_active_attendance_session())
+        if initial_session:
+            try:
+                client_queue.put_nowait({'type': 'session_updated', 'data': initial_session})
+            except queue.Full:
+                pass
         
         try:
             # Gửi event kết nối thành công

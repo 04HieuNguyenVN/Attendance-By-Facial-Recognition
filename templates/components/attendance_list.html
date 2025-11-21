@@ -1,0 +1,122 @@
+<div class="card shadow-sm">
+  <div
+    class="card-header bg-success text-white d-flex justify-content-between align-items-center"
+  >
+    <h5 class="card-title mb-0">
+      <i class="fas fa-list-check me-2"></i>Danh sách điểm danh hôm nay
+    </h5>
+    <span class="badge bg-light text-dark" id="attendance-count"
+      >{{ attendance|length if attendance else 0 }}</span
+    >
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>#</th>
+            <th>Họ tên</th>
+            <th>Giờ vào</th>
+            <th>Thời gian có mặt</th>
+            <th>Trạng thái</th>
+            <th>Hành động</th>
+          </tr>
+        </thead>
+        <tbody id="attendance-table-body">
+          {% if attendance and attendance|length > 0 %} {% for row in attendance
+          %}
+          <tr data-student-id="{{ row.student_id }}">
+            <td>{{ loop.index }}</td>
+            <td>
+              <div class="d-flex align-items-center">
+                <div
+                  class="avatar-sm bg-primary text-white rounded-circle d-flex align-items-center justify-content-center me-2"
+                >
+                  {{ row.full_name[0].upper() if row.full_name else "N" }}
+                </div>
+                <div>
+                  <div class="fw-bold">
+                    {{ row.full_name if row.full_name else "Không có tên" }}
+                  </div>
+                  <small class="text-muted"
+                    >ID: {{ row.student_id if row.student_id else "N/A"
+                    }}</small
+                  >
+                  {% if row.class_display %}
+                  <div class="attendance-class-chip mt-1">
+                    <span
+                      class="badge class-badge {{ 'badge-credit' if row.class_type == 'credit' else 'badge-admin' }}"
+                      >{{ row.class_display }}</span
+                    >
+                  </div>
+                  {% endif %}
+                </div>
+              </div>
+            </td>
+            <td>
+              <div>
+                <i class="fas fa-clock me-1"></i>
+                {{ row.timestamp[11:19] if row.timestamp else "N/A" }}
+              </div>
+              <small class="text-muted">
+                {% if row.checkout_time %}
+                <i class="fas fa-sign-out-alt me-1"></i>Ra: {{
+                row.checkout_time[11:19] }} {% endif %}
+              </small>
+            </td>
+            <td>
+              <span
+                class="badge bg-info duration-badge"
+                data-duration="{{ row.duration_minutes if row.duration_minutes else 0 }}"
+              >
+                <i class="fas fa-hourglass-half me-1"></i>
+                {% if row.duration_minutes %} {% if row.duration_minutes >= 60
+                %} {{ (row.duration_minutes // 60) }}h {{ (row.duration_minutes
+                % 60) }}p {% else %} {{ row.duration_minutes }} phút {% endif %}
+                {% else %} 0 phút {% endif %}
+              </span>
+            </td>
+            <td>
+              <span
+                class="badge {% if row.status == 'Đang có mặt' %}bg-success{% elif row.status == 'Đã rời' %}bg-secondary{% else %}bg-warning{% endif %} status-badge"
+              >
+                {% if row.status == 'Đang có mặt' %}
+                <i class="fas fa-user-check me-1"></i>
+                {% elif row.status == 'Đã rời' %}
+                <i class="fas fa-sign-out-alt me-1"></i>
+                {% else %}
+                <i class="fas fa-user-clock me-1"></i>
+                {% endif %} {{ row.status }}
+              </span>
+            </td>
+            <td>
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-primary js-view-details"
+                data-student-id="{{ row.student_id }}"
+                data-student-name="{{ (row.full_name if row.full_name else 'N/A')|e }}"
+                title="Xem chi tiết"
+              >
+                <i class="fas fa-eye"></i>
+              </button>
+            </td>
+          </tr>
+          {% endfor %} {% else %}
+          <tr>
+            <td colspan="6">
+              <div class="text-center py-5">
+                <i class="fas fa-user-times fa-3x text-muted mb-3"></i>
+                <h5 class="text-muted">Chưa có sinh viên nào điểm danh</h5>
+                <p class="text-muted">
+                  Hệ thống sẽ tự động nhận diện và điểm danh khi có sinh viên
+                  xuất hiện trước camera.
+                </p>
+              </div>
+            </td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>

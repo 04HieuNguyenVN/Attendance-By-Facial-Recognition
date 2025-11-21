@@ -1,0 +1,146 @@
+<div
+  class="modal fade"
+  id="quickRegisterModal"
+  tabindex="-1"
+  aria-labelledby="quickRegisterModalLabel"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title" id="quickRegisterModalLabel">
+          <i class="fas fa-user-plus me-2"></i>Đăng ký khuôn mặt nhanh
+        </h5>
+        <button
+          type="button"
+          class="btn-close btn-close-white"
+          data-bs-dismiss="modal"
+          aria-label="Close"
+        ></button>
+      </div>
+      <div class="modal-body">
+        <form id="quickRegisterForm">
+          <div class="row">
+            <div class="col-md-6">
+              <div class="mb-3">
+                <label for="reg-student-id" class="form-label"
+                  >Mã sinh viên <span class="text-danger">*</span></label
+                >
+                <input
+                  type="text"
+                  class="form-control"
+                  id="reg-student-id"
+                  name="student_id"
+                  required
+                  placeholder="Ví dụ: SV001"
+                />
+              </div>
+              <div class="mb-3">
+                <label for="reg-full-name" class="form-label"
+                  >Họ và tên <span class="text-danger">*</span></label
+                >
+                <input
+                  type="text"
+                  class="form-control"
+                  id="reg-full-name"
+                  name="full_name"
+                  required
+                  placeholder="Ví dụ: Nguyễn Văn A"
+                />
+              </div>
+              <div class="mb-3">
+                <label for="reg-class-name" class="form-label">Lớp</label>
+                <input
+                  type="text"
+                  class="form-control"
+                  id="reg-class-name"
+                  name="class_name"
+                  list="quick-register-class-options"
+                  placeholder="Chọn hoặc nhập tên lớp"
+                />
+                <datalist id="quick-register-class-options"></datalist>
+                <div class="form-text">
+                  Chọn từ danh sách lớp hiện có hoặc nhập tên lớp mới.
+                </div>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="mb-3">
+                <label class="form-label"
+                  >Ảnh khuôn mặt <span class="text-danger">*</span></label
+                >
+                <div class="text-center">
+                  <video
+                    id="webcam-preview"
+                    class="border rounded mb-2"
+                    width="100%"
+                    height="240"
+                    autoplay
+                    style="display: none"
+                  ></video>
+                  <canvas id="capture-canvas" style="display: none"></canvas>
+                  <img
+                    id="captured-image"
+                    class="border rounded mb-2"
+                    width="100%"
+                    style="display: none"
+                  />
+                  <div
+                    id="camera-placeholder"
+                    class="border rounded d-flex align-items-center justify-content-center bg-light camera-placeholder-box"
+                  >
+                    <i class="fas fa-camera fa-3x text-muted"></i>
+                  </div>
+                </div>
+                <div class="d-grid gap-2 mt-2">
+                  <button
+                    type="button"
+                    class="btn btn-outline-primary"
+                    id="start-webcam-btn"
+                  >
+                    <i class="fas fa-video me-1"></i>Bật Camera
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-success"
+                    id="capture-btn"
+                    style="display: none"
+                  >
+                    <i class="fas fa-camera me-1"></i>Chụp ảnh
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-warning"
+                    id="retake-btn"
+                    style="display: none"
+                  >
+                    <i class="fas fa-redo me-1"></i>Chụp lại
+                  </button>
+                  <div class="text-center">
+                    <small class="text-muted">hoặc</small>
+                  </div>
+                  <input
+                    type="file"
+                    class="form-control"
+                    id="reg-face-image"
+                    name="face_image"
+                    accept="image/*"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="register-result" class="mt-3"></div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          <i class="fas fa-times me-1"></i>Hủy
+        </button>
+        <button type="button" class="btn btn-primary" id="submit-register-btn">
+          <i class="fas fa-save me-1"></i>Đăng ký
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
