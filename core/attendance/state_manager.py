@@ -46,7 +46,13 @@ class AttendanceStateManager:
     # ------------------------------------------------------------------
     def load_today_records(self) -> None:
         try:
-            records = self._db.get_today_attendance() or []
+            session_ctx = self._session_provider()
+            session_id = session_ctx.get("id") if session_ctx else None
+            credit_class_id = session_ctx.get("credit_class_id") if session_ctx else None
+            records = self._db.get_today_attendance(
+                session_id=session_id,
+                credit_class_id=credit_class_id,
+            ) or []
         except Exception as exc:  # pragma: no cover - DB errors runtime dependent
             self._logger.error("[Attendance] Không thể tải điểm danh hôm nay: %s", exc)
             return
@@ -211,7 +217,10 @@ class AttendanceStateManager:
             )
             return False
 
-        success = self._db.mark_checkout(normalized_id or student_id)
+        success = self._db.mark_checkout(
+            normalized_id or student_id,
+            session_id=session_ctx.get("id") if session_ctx else None,
+        )
         if not success:
             return False
 
@@ -345,4 +354,3 @@ class AttendanceStateManager:
     def checked_out_ids(self) -> List[str]:
         with self._lock:
             return list(self._checked_out)
-```}

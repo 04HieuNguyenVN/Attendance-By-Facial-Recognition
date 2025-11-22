@@ -574,7 +574,7 @@
                 if (!this.currentStudentId) return;
 
                 try {
-                    const response = await fetch(`/api/students/${this.currentStudentId}`, {
+                    const response = await fetch(`/api/students/${this.currentStudentId}?permanent=1`, {
                         method: 'DELETE'
                     });
 

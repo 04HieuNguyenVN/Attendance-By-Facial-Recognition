@@ -72,6 +72,7 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # Kích thước file tối
 
 # Cấu hình upload ảnh
 ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png'}
+SUPPORTED_IMAGE_FORMATS = {'JPEG', 'PNG', 'WEBP'}
 MIN_FILE_SIZE = 1024  # 1 KB - tối thiểu
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
@@ -891,40 +892,61 @@ def validate_image_file(file_path, is_base64=False):
         
         # Kiểm tra định dạng ảnh với PIL
         if PIL_AVAILABLE:
+            img = None
+            img_stream = None
             try:
                 if is_base64:
-                    # Decode base64
                     image_data = file_path
                     if ',' in image_data:
                         image_data = image_data.split(',')[1]
                     img_bytes = base64.b64decode(image_data)
-                    img = Image.open(io.BytesIO(img_bytes))
+                    img_stream = io.BytesIO(img_bytes)
+                    img = Image.open(img_stream)
                 else:
                     img = Image.open(file_path)
-                
-                # Kiểm tra format
-                if img.format not in ['JPEG', 'PNG']:
-                    return False, f"Định dạng không được hỗ trợ: {img.format}. Chỉ chấp nhận JPG, JPEG, PNG", 0
-                
-                # Kiểm tra mode (phải là RGB hoặc có thể convert sang RGB)
+
+                detected_format = (img.format or '').upper()
+                if detected_format == 'JPG':
+                    detected_format = 'JPEG'
+
+                if not detected_format or detected_format not in SUPPORTED_IMAGE_FORMATS:
+                    message = (
+                        "Không xác định được định dạng ảnh"
+                        if not detected_format
+                        else f"Định dạng không được hỗ trợ: {detected_format}. Chỉ chấp nhận JPG, JPEG, PNG"
+                    )
+                    return False, message, 0
+
+                webp_detected = detected_format == 'WEBP'
+
                 if img.mode not in ['RGB', 'L', 'RGBA']:
                     return False, f"Chế độ màu không được hỗ trợ: {img.mode}. Cần RGB hoặc Grayscale", 0
-                
-                # Convert sang RGB nếu cần
+
                 if img.mode != 'RGB':
-                    img = img.convert('RGB')
-                    
-                # Kiểm tra kích thước ảnh (tối thiểu 100x100 pixels)
+                    converted = img.convert('RGB')
+                    img.close()
+                    img = converted
+
                 width, height = img.size
                 if width < 100 or height < 100:
                     return False, f"Ảnh quá nhỏ ({width}x{height}). Tối thiểu 100x100 pixels", 0
-                
-                # Lưu lại ảnh với định dạng đúng nếu cần
-                if not is_base64 and img.mode != 'RGB':
-                    img.save(file_path, 'JPEG', quality=95)
-                    
+
+                if webp_detected and not is_base64:
+                    try:
+                        img.save(file_path, 'JPEG', quality=95)
+                    except Exception as exc:
+                        return False, f"Không thể chuyển WEBP sang JPEG: {exc}", 0
+
             except Exception as e:
                 return False, f"Lỗi đọc ảnh: {str(e)}", 0
+            finally:
+                if img is not None:
+                    try:
+                        img.close()
+                    except Exception:
+                        pass
+                if img_stream is not None:
+                    img_stream.close()
         
         # Kiểm tra phát hiện khuôn mặt với face_recognition
         # WORKAROUND: Bỏ qua face detection vì face_recognition v1.2.3 có bug
@@ -1051,14 +1073,25 @@ def recognize_face_candidate(face_img) -> Dict[str, Any]:
     return result
 
 # Load danh sách đã điểm danh hôm nay từ Database
-def load_today_recorded():
+def load_today_recorded(session_id=None, credit_class_id=None):
     global today_checked_in, today_checked_out, today_student_names
     today_checked_in = set()
     today_checked_out = set()
     today_student_names = {}
-    
+
+    session_filter = session_id
+    class_filter = credit_class_id
+    if session_filter is None:
+        session_ctx = get_active_attendance_session()
+        if session_ctx:
+            session_filter = session_ctx.get('id')
+            class_filter = class_filter or session_ctx.get('credit_class_id')
+
     try:
-        attendance_data = db.get_today_attendance()
+        attendance_data = db.get_today_attendance(
+            session_id=session_filter,
+            credit_class_id=class_filter,
+        )
         for record in attendance_data:
             record_dict = dict(record) if not isinstance(record, dict) else record
             student_id = record_dict.get('student_id')
@@ -1079,6 +1112,17 @@ def load_today_recorded():
                 today_checked_out.add(student_id)
     except Exception as e:
         app.logger.error(f"Error loading today recorded: {e}")
+
+
+def reset_session_runtime_state(session_row=None):
+    """Đặt lại cache điểm danh & tracking khi chuyển phiên."""
+    session_id = session_row.get('id') if isinstance(session_row, dict) else None
+    credit_class_id = session_row.get('credit_class_id') if isinstance(session_row, dict) else None
+    load_today_recorded(session_id=session_id, credit_class_id=credit_class_id)
+    with presence_tracking_lock:
+        presence_tracking.clear()
+    with attendance_progress_lock:
+        attendance_progress.clear()
 
 # Lưu điểm danh vào Database
 def mark_attendance(
@@ -1204,9 +1248,9 @@ def mark_student_checkout(
     if not already_checked_in or already_checked_out:
         return False
 
+    session_ctx = get_active_attendance_session()
+    credit_class_id = session_ctx.get('credit_class_id') if session_ctx else None
     if expected_credit_class_id is not None:
-        session_ctx = get_active_attendance_session()
-        credit_class_id = session_ctx.get('credit_class_id') if session_ctx else None
         if not session_ctx or int(credit_class_id or 0) != int(expected_credit_class_id):
             app.logger.info(
                 "[Attendance] Rejecting checkout for %s: session mismatch (expected class %s, active %s)",
@@ -1215,8 +1259,11 @@ def mark_student_checkout(
                 credit_class_id,
             )
             return False
-    
-    success = db.mark_checkout(normalized_student_id or student_id)
+
+    success = db.mark_checkout(
+        normalized_student_id or student_id,
+        session_id=session_ctx.get('id') if session_ctx else None,
+    )
     if not success:
         return False
     
@@ -1403,7 +1450,13 @@ def check_presence_timeout():
 def get_today_attendance():
     """Lấy danh sách điểm danh hôm nay từ database"""
     try:
-        attendance_data = db.get_today_attendance()
+        session_row = get_active_attendance_session()
+        session_id = session_row.get('id') if session_row else None
+        credit_class_id = session_row.get('credit_class_id') if session_row else None
+        attendance_data = db.get_today_attendance(
+            session_id=session_id,
+            credit_class_id=credit_class_id,
+        )
         # Convert SQLite Row objects to dict
         results = []
         now = datetime.now()
@@ -1684,11 +1737,9 @@ def generate_frames(
                                         status = 'checked_in'
                                         with last_recognized_lock:
                                             last_recognized[student_id] = now
-                                        app.logger.info(
-                                            f"[+] {student_id} - {name} điểm danh lúc {now.strftime('%Y-%m-%d %H:%M:%S')}"
-                                        )
+                                    else:
+                                        status = 'already_marked'
                                 except Exception as e:
-                                    status = 'error'
                                     app.logger.error(f"[System] Lỗi điểm danh: {e}")
                             elif (
                                 requested_action == 'auto'
@@ -2092,34 +2143,36 @@ def api_quick_register():
         
         # Handle webcam capture or file upload
         face_image = None
-        is_base64 = False
         
         # Check webcam capture first (has priority)
         if 'image_data' in request.form and request.form['image_data']:
-            # Validate base64 image trước
             image_data = request.form['image_data']
-            success, error_msg, face_count = validate_image_file(image_data, is_base64=True)
-            
-            if not success:
-                app.logger.error(f"Image validation failed: {error_msg}")
-                return jsonify({'error': f'Ảnh không hợp lệ: {error_msg}'}), 400
-            
-            # Handle base64 image from webcam
             app.logger.info(f"Image data length: {len(image_data)}")
-            # Remove data:image/jpeg;base64, prefix
+
             if ',' in image_data:
                 image_data = image_data.split(',')[1]
-            
-            img_bytes = base64.b64decode(image_data)
+
+            try:
+                img_bytes = base64.b64decode(image_data)
+            except Exception as exc:
+                app.logger.error(f"Invalid base64 data: {exc}")
+                return jsonify({'error': 'Ảnh không hợp lệ: Không thể giải mã dữ liệu base64'}), 400
+
             filename = f"{student_id}_{full_name}.jpg"
             file_path = DATA_DIR / filename
             DATA_DIR.mkdir(exist_ok=True)
-            
-            # Lưu ảnh đã validate
+
             with open(file_path, 'wb') as f:
                 f.write(img_bytes)
+
+            success, error_msg, face_count = validate_image_file(str(file_path), is_base64=False)
+
+            if not success:
+                safe_delete_file(str(file_path))
+                app.logger.error(f"Image validation failed: {error_msg}")
+                return jsonify({'error': f'Ảnh không hợp lệ: {error_msg}'}), 400
+
             face_image = str(file_path)
-            is_base64 = True
             app.logger.info(f"Saved webcam capture: {face_image} (faces: {face_count})")
             
         elif 'face_image' in request.files:
@@ -2158,18 +2211,22 @@ def api_quick_register():
         # Ảnh đã được validate, không cần kiểm tra lại
         # Face encoding sẽ được tạo khi load_known_faces()
         app.logger.info(f"Image validated successfully: {face_image}")
-        
-        # Add to database with face image path
+
         email = data.get('email', f'{student_id}@student.edu.vn')
         phone = data.get('phone', '')
         class_name = data.get('class_name', 'Chưa phân lớp')
-        
-        db.add_student(student_id, full_name, email, phone, class_name, face_image)
-        
-        # Reload known faces
+
+        created, credentials = db.add_student(student_id, full_name, email, phone, class_name, face_image)
+        if not created:
+            safe_delete_file(face_image)
+            return jsonify({'error': 'Mã sinh viên đã tồn tại'}), 400
+
         load_known_faces()
-        
-        return jsonify({'success': True, 'message': f'Đăng ký thành công cho {full_name}!'})
+
+        payload = {'success': True, 'message': f'Đăng ký thành công cho {full_name}!'}
+        if credentials:
+            payload['credentials'] = credentials
+        return jsonify(payload), 200
         
     except Exception as e:
         app.logger.error(f"Quick registration error: {e}")
@@ -2309,7 +2366,7 @@ def api_create_student():
         if file and file.filename:
             face_image_path = save_uploaded_face_image(file, student_id, full_name)
 
-        created = db.add_student(
+        created, credentials = db.add_student(
             student_id=student_id,
             full_name=full_name,
             email=email,
@@ -2326,7 +2383,10 @@ def api_create_student():
             load_known_faces()
 
         student = db.get_student(student_id)
-        return jsonify({'success': True, 'data': serialize_student_record(student)}), 201
+        response_payload = {'success': True, 'data': serialize_student_record(student)}
+        if credentials:
+            response_payload['credentials'] = credentials
+        return jsonify(response_payload), 201
     except ValueError as err:
         safe_delete_file(face_image_path)
         return jsonify({'success': False, 'message': str(err)}), 400
@@ -2405,9 +2465,12 @@ def api_student_detail(student_id):
         return jsonify({'success': True, 'data': serialize_student_record(student)})
 
     # DELETE method
-    deleted = db.delete_student(student_id)
+    permanent = parse_bool(request.args.get('permanent'), default=True)
+    deleted = db.delete_student(student_id, permanent=permanent)
     if not deleted:
         return jsonify({'success': False, 'message': 'Không thể xóa sinh viên'}), 400
+    if permanent:
+        safe_delete_file(student.get('face_image_path'))
     return jsonify({'success': True})
 
 
@@ -2493,7 +2556,7 @@ def api_teacher_credit_class_students(credit_class_id):
 
     try:
         roster = db.get_credit_class_students(credit_class_id) or []
-        today_attendance = db.get_today_attendance() or []
+        today_attendance = db.get_today_attendance(credit_class_id=credit_class_id) or []
 
         present_map = {}
         for att in today_attendance:
@@ -2756,8 +2819,22 @@ def api_open_attendance_session():
     except (ValueError, TypeError):
         return jsonify({'success': False, 'message': 'Mã lớp tín chỉ không hợp lệ'}), 400
 
-    if get_active_attendance_session():
-        return jsonify({'success': False, 'message': 'Đã có phiên điểm danh đang mở'}), 400
+    active_session = get_active_attendance_session()
+    if active_session:
+        active_class_id = active_session.get('credit_class_id')
+        if active_class_id and int(active_class_id) != int(credit_class_id):
+            return jsonify({'success': False, 'message': 'Đã có phiên điểm danh đang mở'}), 400
+        try:
+            db.close_attendance_session(active_session['id'], status='superseded')
+            set_active_session_cache(None)
+            broadcast_session_snapshot(force_reload=True)
+        except Exception as exc:
+            app.logger.warning(
+                "Không thể tự động đóng phiên cũ %s: %s",
+                active_session.get('id'),
+                exc,
+            )
+            return jsonify({'success': False, 'message': 'Không thể đóng phiên cũ'}), 500
 
     teacher_ctx = resolve_teacher_context()
     if not teacher_ctx:
@@ -2793,6 +2870,7 @@ def api_open_attendance_session():
         )
         session_row = db.get_session_by_id(session_id)
         set_active_session_cache(session_row)
+        reset_session_runtime_state(session_row)
         payload = serialize_session_payload(session_row)
         broadcast_session_snapshot()
         return jsonify({'success': True, 'session': payload})
@@ -2899,7 +2977,7 @@ def api_mark_attendance_for_session(session_id):
             return jsonify({'success': False, 'message': 'Không thể điểm danh (có thể đã điểm danh trước đó)'}), 400
 
         elif action in ('checkout', 'check_out'):
-            success = db.mark_checkout(student_code)
+            success = db.mark_checkout(student_code, session_id=session_id)
             if success:
                 with today_recorded_lock:
                     today_checked_out.add(student_code)
@@ -3158,7 +3236,13 @@ def api_attendance_notifications():
 
         # Lấy các bản ghi điểm danh gần đây (hôm nay) và chuyển thành thông báo
         try:
-            recent_att = db.get_today_attendance()
+            session_row = get_active_attendance_session()
+            session_id = session_row.get('id') if session_row else None
+            credit_class_id = session_row.get('credit_class_id') if session_row else None
+            recent_att = db.get_today_attendance(
+                session_id=session_id,
+                credit_class_id=credit_class_id,
+            )
             # Chỉ lấy 5 bản ghi gần nhất
             for row in recent_att[:5]:
                 msg = f"{row.get('student_name') or row.get('full_name')} đã điểm danh"

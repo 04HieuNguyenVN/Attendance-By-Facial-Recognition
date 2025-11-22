@@ -5,9 +5,14 @@ Quản lý cơ sở dữ liệu SQLite cho hệ thống điểm danh
 
 import sqlite3
 import os
+import csv
+import secrets
+import string
 from datetime import datetime, date
 from pathlib import Path
 import logging
+
+from werkzeug.security import generate_password_hash
 
 # Thiết lập logging
 logging.basicConfig(level=logging.INFO)
@@ -160,6 +165,26 @@ class DatabaseManager:
                     FOREIGN KEY (user_id) REFERENCES users(id)
                 )
             ''')
+
+            # Lưu lại thông tin tài khoản/mật khẩu đã cấp phát
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS generated_account_credentials (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    username VARCHAR(50) NOT NULL,
+                    full_name VARCHAR(100),
+                    role VARCHAR(20),
+                    owner_type VARCHAR(20),
+                    owner_identifier VARCHAR(50),
+                    plain_password VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    exported BOOLEAN DEFAULT 0,
+                    notes TEXT,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_credentials_user ON generated_account_credentials(user_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_credentials_username ON generated_account_credentials(username)')
             
             # Bảng lưu nhiều ảnh mẫu của sinh viên (cho AI training)
             cursor.execute('''
@@ -462,25 +487,28 @@ class DatabaseManager:
     
     # === QUẢN LÝ SINH VIÊN ===
     def add_student(self, student_id, full_name, email=None, phone=None, class_name=None, face_image_path=None):
-        """Thêm sinh viên mới"""
+        """Thêm sinh viên mới và tự tạo tài khoản đăng nhập nếu cần."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
-                # Tìm hoặc tạo class_id từ class_name
                 class_id = None
                 if class_name:
                     class_id = self._get_or_create_class(cursor, class_name)
-                
-                cursor.execute('''
+
+                cursor.execute(
+                    '''
                     INSERT INTO students (student_id, full_name, email, phone, class_id, face_image_path)
                     VALUES (?, ?, ?, ?, ?, ?)
-                ''', (student_id, full_name, email, phone, class_id, face_image_path))
+                    ''',
+                    (student_id, full_name, email, phone, class_id, face_image_path),
+                )
+                credentials = self._ensure_student_account(cursor, student_id, full_name, email)
                 conn.commit()
-                logger.info(f"Added student: {full_name} ({student_id})")
-                return True
+                logger.info("Added student: %s (%s)", full_name, student_id)
+                return True, credentials
             except sqlite3.IntegrityError as e:
-                logger.error(f"Student ID {student_id} already exists: {e}")
-                return False
+                logger.error("Student ID %s already exists: %s", student_id, e)
+                return False, None
     
     def get_student(self, student_id):
         """Lấy thông tin sinh viên"""
@@ -488,6 +516,118 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM students WHERE student_id = ?', (student_id,))
             return cursor.fetchone()
+
+    def _generate_student_password(self, length: int = 10) -> str:
+        alphabet = string.ascii_letters + string.digits
+        rng = secrets.SystemRandom()
+        return ''.join(rng.choice(alphabet) for _ in range(max(6, length)))
+
+    def _ensure_student_account(self, cursor, student_id, full_name, email=None):
+        username = (student_id or '').strip()
+        if not username:
+            return None
+
+        cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
+        row = cursor.fetchone()
+        if row:
+            user_id = row['id'] if isinstance(row, sqlite3.Row) else row[0]
+            cursor.execute(
+                'UPDATE students SET user_id = ? WHERE student_id = ? AND (user_id IS NULL OR user_id = ?)',
+                (user_id, student_id, user_id),
+            )
+            return None
+
+        plain_password = self._generate_student_password()
+        password_hash = generate_password_hash(plain_password)
+        cursor.execute(
+            '''
+            INSERT INTO users (username, password_hash, full_name, role, email, is_active)
+            VALUES (?, ?, ?, 'student', ?, 1)
+            ''',
+            (username, password_hash, full_name or username, email),
+        )
+        user_id = cursor.lastrowid
+        cursor.execute(
+            'UPDATE students SET user_id = ? WHERE student_id = ?',
+            (user_id, student_id),
+        )
+
+        credentials = {
+            'student_id': student_id,
+            'full_name': full_name,
+            'username': username,
+            'password': plain_password,
+            'user_id': user_id,
+            'role': 'student',
+            'owner_type': 'student',
+            'owner_identifier': student_id,
+        }
+        self._append_generated_credentials([credentials], owner_type='student')
+        return credentials
+
+    def _append_generated_credentials(self, rows, owner_type='student'):
+        if not rows:
+            return
+
+        data_dir = Path('data')
+        data_dir.mkdir(exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d')
+        output_path = data_dir / f'generated_credentials_{timestamp}.csv'
+        new_file = not output_path.exists()
+        try:
+            with output_path.open('a', newline='', encoding='utf-8') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=['student_id', 'full_name', 'username', 'password'])
+                if new_file:
+                    writer.writeheader()
+                for row in rows:
+                    writer.writerow(row)
+        except Exception as exc:
+            logger.warning("Không thể ghi file credentials %s: %s", output_path, exc)
+
+        self._store_generated_credentials(rows, owner_type)
+
+    def _store_generated_credentials(self, rows, owner_type='student'):
+        if not rows:
+            return
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            for row in rows:
+                username = row.get('username')
+                password_plain = row.get('password')
+                if not username or not password_plain:
+                    continue
+                cursor.execute('''
+                    INSERT INTO generated_account_credentials (
+                        user_id, username, full_name, role, owner_type, owner_identifier, plain_password
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    row.get('user_id'),
+                    username,
+                    row.get('full_name'),
+                    row.get('role'),
+                    owner_type or row.get('owner_type') or row.get('role'),
+                    row.get('student_id') or row.get('owner_identifier'),
+                    password_plain,
+                ))
+            conn.commit()
+
+    def record_generated_credential(self, username, password, *, full_name=None,
+                                    role='student', owner_type=None, owner_identifier=None,
+                                    user_id=None):
+        """API công khai để lưu lại tài khoản/mật khẩu vừa cấp."""
+        if not username or not password:
+            return False
+        payload = {
+            'username': username,
+            'password': password,
+            'full_name': full_name,
+            'role': role,
+            'owner_type': owner_type or role,
+            'owner_identifier': owner_identifier,
+            'user_id': user_id,
+        }
+        self._append_generated_credentials([payload], owner_type=payload['owner_type'])
+        return True
 
     def get_student_by_user(self, user_id):
         """Lấy sinh viên dựa trên user_id đã liên kết."""
@@ -546,14 +686,17 @@ class DatabaseManager:
                 updates['class_id'] = class_id
 
             for field in allowed_fields:
-                if field in kwargs and kwargs[field] is not None:
-                    value = kwargs[field]
-                    if field == 'is_active':
-                        if isinstance(value, str):
-                            value = 1 if value.strip().lower() in ('1', 'true', 'on', 'yes') else 0
-                        else:
-                            value = 1 if bool(value) else 0
-                    updates[field] = value
+                if field not in kwargs:
+                    continue
+                value = kwargs[field]
+                if field == 'is_active':
+                    if isinstance(value, str):
+                        value = 1 if value.strip().lower() in ('1', 'true', 'on', 'yes') else 0
+                    else:
+                        value = 1 if bool(value) else 0
+                if value is None:
+                    continue
+                updates[field] = value
 
             if not updates:
                 return False
@@ -567,9 +710,34 @@ class DatabaseManager:
             conn.commit()
             return cursor.rowcount > 0
     
-    def delete_student(self, student_id):
-        """Xóa sinh viên (soft delete)"""
-        return self.update_student(student_id, is_active=False)
+    def delete_student(self, student_id, *, permanent=True):
+        """Xóa sinh viên. Mặc định xóa hẳn (bao gồm tài khoản đi kèm)."""
+        if not student_id:
+            return False
+
+        if not permanent:
+            return self.update_student(student_id, is_active=False)
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, user_id FROM students WHERE student_id = ?', (student_id,))
+            row = cursor.fetchone()
+            if not row:
+                return False
+
+            student_pk = row['id'] if isinstance(row, sqlite3.Row) else row[0]
+            linked_user_id = row['user_id'] if isinstance(row, sqlite3.Row) else row[1]
+
+            # Dọn dữ liệu liên kết để không còn ràng buộc khóa ngoại
+            cursor.execute('DELETE FROM credit_class_students WHERE student_id = ?', (student_pk,))
+            cursor.execute('DELETE FROM student_face_samples WHERE student_id = ?', (student_id,))
+
+            cursor.execute('DELETE FROM students WHERE id = ?', (student_pk,))
+            if linked_user_id:
+                cursor.execute('DELETE FROM users WHERE id = ?', (linked_user_id,))
+
+            conn.commit()
+            return True
     
     # === QUẢN LÝ ẢNH MẪU SINH VIÊN (CHO AI TRAINING) ===
     
@@ -672,18 +840,24 @@ class DatabaseManager:
     # === QUẢN LÝ ĐIỂM DANH ===
     def mark_attendance(self, student_id, student_name, status='present', confidence_score=None,
                         notes=None, credit_class_id=None, session_id=None):
-        """Điểm danh sinh viên"""
+        """Điểm danh sinh viên; mỗi session được ghi nhận độc lập."""
         today = date.today().isoformat()
         now = datetime.now().isoformat()
         
         with self.get_connection() as conn:
             cursor = conn.cursor()
             
-            # Kiểm tra xem đã điểm danh chưa
-            cursor.execute('''
-                SELECT id FROM attendance 
-                WHERE student_id = ? AND attendance_date = ? AND status = 'present'
-            ''', (student_id, today))
+            # Kiểm tra xem đã điểm danh trong phiên hiện tại chưa (nếu có session)
+            if session_id is not None:
+                cursor.execute('''
+                    SELECT id FROM attendance
+                    WHERE student_id = ? AND session_id = ?
+                ''', (student_id, session_id))
+            else:
+                cursor.execute('''
+                    SELECT id FROM attendance 
+                    WHERE student_id = ? AND attendance_date = ? AND status = 'present'
+                ''', (student_id, today))
             
             if cursor.fetchone():
                 logger.info(f"Student {student_name} already marked present today")
@@ -730,8 +904,8 @@ class DatabaseManager:
                 return True
             return False
     
-    def mark_checkout(self, student_id):
-        """Đánh dấu checkout cho sinh viên"""
+    def mark_checkout(self, student_id, session_id=None):
+        """Đánh dấu checkout cho sinh viên trong phiên hiện tại (nếu có)."""
         today = date.today().isoformat()
         now = datetime.now().isoformat()
         
@@ -739,11 +913,18 @@ class DatabaseManager:
             cursor = conn.cursor()
             
             # Tìm bản ghi điểm danh hôm nay chưa checkout
-            cursor.execute('''
-                SELECT id, check_in_time FROM attendance 
-                WHERE student_id = ? AND attendance_date = ? AND check_out_time IS NULL
-                ORDER BY check_in_time DESC LIMIT 1
-            ''', (student_id, today))
+            if session_id is not None:
+                cursor.execute('''
+                    SELECT id, check_in_time FROM attendance 
+                    WHERE student_id = ? AND session_id = ? AND check_out_time IS NULL
+                    ORDER BY check_in_time DESC LIMIT 1
+                ''', (student_id, session_id))
+            else:
+                cursor.execute('''
+                    SELECT id, check_in_time FROM attendance 
+                    WHERE student_id = ? AND attendance_date = ? AND check_out_time IS NULL
+                    ORDER BY check_in_time DESC LIMIT 1
+                ''', (student_id, today))
             
             record = cursor.fetchone()
             if record:
@@ -788,12 +969,12 @@ class DatabaseManager:
             ''', (attendance_date,))
             return [dict(r) for r in cursor.fetchall()]
     
-    def get_today_attendance(self):
-        """Lấy danh sách điểm danh hôm nay"""
+    def get_today_attendance(self, session_id=None, credit_class_id=None):
+        """Lấy danh sách điểm danh hôm nay; hỗ trợ lọc theo phiên hoặc lớp tín chỉ."""
         today = date.today().isoformat()
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
+            query = ['''
                 SELECT 
                     a.*, 
                     s.full_name, s.email, s.phone, c.class_name,
@@ -804,8 +985,16 @@ class DatabaseManager:
                 LEFT JOIN classes c ON s.class_id = c.id
                 LEFT JOIN credit_classes cc ON a.credit_class_id = cc.id
                 WHERE a.attendance_date = ?
-                ORDER BY a.check_in_time DESC
-            ''', (today,))
+            ''']
+            params = [today]
+            if session_id is not None:
+                query.append('AND a.session_id = ?')
+                params.append(session_id)
+            if credit_class_id is not None:
+                query.append('AND a.credit_class_id = ?')
+                params.append(credit_class_id)
+            query.append('ORDER BY a.check_in_time DESC')
+            cursor.execute('\n'.join(query), tuple(params))
             return [dict(r) for r in cursor.fetchall()]
     
     def get_attendance_by_date_range(self, start_date, end_date):
@@ -1500,7 +1689,7 @@ class DatabaseManager:
             existing = self.get_student(student['student_id'])
             if existing:
                 continue
-            created = self.add_student(
+            created, _ = self.add_student(
                 student['student_id'],
                 student['full_name'],
                 email=student.get('email'),
@@ -1546,13 +1735,19 @@ class DatabaseManager:
         session_date = session_date or date.today().isoformat()
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            # Không cho mở phiên mới nếu đã có phiên đang mở
+            # Tự động đóng các phiên còn mở để mỗi lần mở luôn tạo session mới
             cursor.execute('''
-                SELECT id FROM attendance_sessions
+                UPDATE attendance_sessions
+                SET status = 'superseded', closed_at = COALESCE(closed_at, CURRENT_TIMESTAMP)
                 WHERE credit_class_id = ? AND status IN ('open', 'scheduled') AND closed_at IS NULL
             ''', (credit_class_id,))
-            if cursor.fetchone():
-                raise ValueError('Lớp đang có phiên điểm danh mở, vui lòng đóng trước khi tạo phiên mới')
+            closed_sessions = cursor.rowcount
+            if closed_sessions:
+                logger.info(
+                    "Đã tự động đóng %d phiên cũ trước khi mở phiên mới cho lớp %s",
+                    closed_sessions,
+                    credit_class_id,
+                )
 
             cursor.execute('''
                 INSERT INTO attendance_sessions (
