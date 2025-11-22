@@ -31,6 +31,7 @@ from datetime import datetime, date, timedelta
 import threading
 import hashlib
 from functools import wraps
+from typing import Any, Dict, Optional
 # Note: use threading.Thread / threading.Lock via the threading module to avoid
 # duplicate unused names in the module namespace.
 
@@ -48,6 +49,14 @@ except ImportError:
 # Local imports
 from database import db
 from logging_config import setup_logging
+from core.inference.engine import (
+    DeepFaceStrategy,
+    FaceNetStrategy,
+    InferenceEngine,
+    InferenceError,
+)
+from core.vision.camera_manager import CameraError
+from core.vision.state import VisionPipelineState, VisionStateConfig
 
 # Try to load dotenv, but don't fail if not installed
 try:
@@ -94,18 +103,16 @@ if USE_FACENET and not DEMO_MODE:
         from services.face_service import FaceRecognitionService
         from services.antispoof_service import AntiSpoofService
         from services.training_service import TrainingService
-        
-        # Initialize FaceNet service
+
         face_service = FaceRecognitionService(
             confidence_threshold=float(os.getenv('FACENET_THRESHOLD', '0.85'))
         )
-        
-        # Initialize anti-spoof service
+
         antispoof_service = AntiSpoofService(
             device=os.getenv('ANTISPOOF_DEVICE', 'cpu'),
             spoof_threshold=float(os.getenv('ANTISPOOF_THRESHOLD', '0.5'))
         )
-        
+
         app.logger.info("FaceNet services initialized successfully")
         FACE_RECOGNITION_AVAILABLE = True
     except Exception as e:
@@ -113,7 +120,7 @@ if USE_FACENET and not DEMO_MODE:
         app.logger.info("Falling back to legacy face_recognition library")
         USE_FACENET = False
 
-# Try to import DeepFace and DeepFace DB helper (from Cong-Nghe-Xu-Ly-Anh system)
+# Try to import DeepFace and DeepFace DB helper
 DEEPFACE_AVAILABLE = False
 try:
     from deepface import DeepFace
@@ -175,6 +182,10 @@ else:
 
 # Chỉ số thiết bị camera (sử dụng os.getenv sau khi load_dotenv)
 CAMERA_INDEX = int(os.getenv('CAMERA_INDEX', '0'))
+CAMERA_WIDTH = int(os.getenv('CAMERA_WIDTH', '640'))
+CAMERA_HEIGHT = int(os.getenv('CAMERA_HEIGHT', '480'))
+CAMERA_WARMUP_FRAMES = int(os.getenv('CAMERA_WARMUP_FRAMES', '3'))
+CAMERA_BUFFER_SIZE = int(os.getenv('CAMERA_BUFFER_SIZE', '2'))
 
 # Ngưỡng confidence cho face recognition
 FACE_RECOGNITION_THRESHOLD = float(os.getenv('FACE_RECOGNITION_THRESHOLD', '0.6'))
@@ -193,10 +204,10 @@ SESSION_DURATION_MINUTES = max(1, int(os.getenv('SESSION_DURATION_MINUTES', '15'
 # Đường dẫn thư mục dữ liệu
 DATA_DIR = Path('data')
 
-# Video capture và khóa
-video_capture = None
-video_lock = threading.Lock()
+# Hệ thống camera/vision
+vision_state: Optional[VisionPipelineState] = None
 camera_enabled = True  # Biến để bật/tắt camera
+inference_engine: Optional[InferenceEngine] = None
 
 # Khởi tạo biến global cho face recognition
 known_face_encodings = []
@@ -218,18 +229,16 @@ presence_tracking = {}  # {student_id: {'last_seen': datetime, 'total_time': sec
 presence_tracking_lock = threading.Lock()
 PRESENCE_TIMEOUT = 300  # 5 phút (300 giây) - nếu không thấy sẽ tự checkout
 
+# Tiến độ xác nhận điểm danh cho mỗi sinh viên khi streaming
+attendance_progress = {}
+attendance_progress_lock = threading.Lock()
+
 # Chống trùng lặp điểm danh (từ hệ thống mẫu Cong-Nghe-Xu-Ly-Anh)
+
 # Chỉ cho phép điểm danh lại sau 30 giây (tránh điểm danh liên tục)
 last_recognized = {}  # {student_id: datetime}
 last_recognized_lock = threading.Lock()
 RECOGNITION_COOLDOWN = 30  # Giây - thời gian chờ giữa các lần điểm danh
-
-# Progress tracking for attendance confirmation (inspired by reg.py)
-# attendance_progress will track continuous frontal-looking time windows per student:
-# {student_id: {'start_time': datetime, 'last_seen': datetime, 'name': str}}
-attendance_progress = {}
-attendance_progress_lock = threading.Lock()
-REQUIRED_FRAMES = 30  # Legacy fallback - not used for time-based confirmation
 
 # Server-Sent Events for real-time notifications
 import queue
@@ -633,121 +642,158 @@ def serialize_student_record(student_row, class_map=None):
         'updated_at': student.get('updated_at'),
     }
 
-# Khởi tạo camera đơn giản nhất có thể
-def ensure_video_capture():
-    global video_capture
-    if video_capture is not None and getattr(video_capture, 'isOpened', lambda: False)():
-        app.logger.debug("[Camera] Camera đã được khởi tạo và đang mở")
-        return
-    
-    # Khởi tạo camera đơn giản nhất có thể
-    app.logger.info(f"[Camera] 🎥 Đang khởi tạo camera với index={CAMERA_INDEX}...")
-    try:
-        video_capture = cv2.VideoCapture(CAMERA_INDEX)
-        
-        if not video_capture.isOpened():
-            app.logger.error(f"[Camera] ❌ Không thể mở camera với index={CAMERA_INDEX}")
-            video_capture = None
-            return
-        
-        app.logger.info(f"[Camera] ✅ Camera đã mở thành công (index={CAMERA_INDEX})")
-        
-        # Set lower resolution by default to reduce CPU and network usage
-        try:
-            CAMERA_WIDTH = int(os.getenv('CAMERA_WIDTH', '640'))
-            CAMERA_HEIGHT = int(os.getenv('CAMERA_HEIGHT', '480'))
-            video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
-            video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
-            
-            # Lấy thông tin thực tế của camera
-            actual_width = int(video_capture.get(cv2.CAP_PROP_FRAME_WIDTH))
-            actual_height = int(video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            fps = video_capture.get(cv2.CAP_PROP_FPS)
-            
-            app.logger.info(f"[Camera] 📐 Độ phân giải: {actual_width}x{actual_height}, FPS: {fps:.2f}")
-            
-            # Try to set a small buffer if supported
-            if hasattr(cv2, 'CAP_PROP_BUFFERSIZE'):
-                try:
-                    video_capture.set(cv2.CAP_PROP_BUFFERSIZE, 2)
-                    buffer_size = int(video_capture.get(cv2.CAP_PROP_BUFFERSIZE))
-                    app.logger.debug(f"[Camera] Buffer size: {buffer_size}")
-                except Exception:
-                    pass
-        except Exception as e:
-            app.logger.warning(f"[Camera] ⚠️ Không thể thiết lập thông số camera: {e}")
+def get_or_create_vision_state() -> VisionPipelineState:
+    global vision_state
+    if vision_state is None:
+        config = VisionStateConfig(
+            index=CAMERA_INDEX,
+            width=CAMERA_WIDTH,
+            height=CAMERA_HEIGHT,
+            warmup_frames=CAMERA_WARMUP_FRAMES,
+            buffer_size=CAMERA_BUFFER_SIZE,
+        )
+        vision_state = VisionPipelineState(config=config, logger=app.logger)
+    return vision_state
 
-        # Warm-up: read a few frames to clear initial buffer
-        app.logger.debug("[Camera] 🔄 Đang warm-up camera (đọc 3 frame đầu)...")
-        warmup_success = 0
-        for i in range(3):
-            try:
-                ret, _ = video_capture.read()
-                if ret:
-                    warmup_success += 1
-                else:
-                    app.logger.warning(f"[Camera] ⚠️ Frame {i+1} warm-up không đọc được")
-                    break
-            except Exception as e:
-                app.logger.warning(f"[Camera] ⚠️ Lỗi khi đọc frame {i+1} warm-up: {e}")
-                break
-        
-        if warmup_success > 0:
-            app.logger.info(f"[Camera] ✅ Warm-up thành công ({warmup_success}/3 frames)")
-        else:
-            app.logger.warning("[Camera] ⚠️ Warm-up không thành công, camera có thể có vấn đề")
-        
-        app.logger.info("[Camera] ✅ Camera đã sẵn sàng sử dụng")
-    except Exception as e:
-        app.logger.error(f"[Camera] ❌ Lỗi khởi tạo camera: {e}", exc_info=True)
-        video_capture = None
+
+def ensure_camera_pipeline():
+    if not camera_enabled:
+        return None
+    state = get_or_create_vision_state()
+    state.set_enabled(True)
+    try:
+        return state.ensure_ready()
+    except CameraError as exc:
+        app.logger.error("[Camera] ❌ Không thể khởi động camera: %s", exc)
+        return None
+
+
+def release_camera_capture():
+    state = vision_state
+    if state is None:
+        return
+    try:
+        state.set_enabled(False)
+        state.stop()
+    except Exception as exc:
+        app.logger.debug("[Camera] ⚠️ Không thể giải phóng camera: %s", exc)
+
+
+def lookup_student_name(student_id: Optional[str]) -> Optional[str]:
+    if not student_id:
+        return None
+    try:
+        student = db.get_student(student_id)
+        if student:
+            return student.get('full_name') or student.get('student_name') or student_id
+    except Exception as exc:
+        app.logger.debug("[Inference] Lookup failed cho %s: %s", student_id, exc)
+    return None
+
+
+def configure_inference_engine():
+    """Khởi tạo inference engine với các chiến lược phù hợp."""
+    global inference_engine
+    try:
+        inference_engine = InferenceEngine(logger=app.logger, demo_mode=DEMO_MODE)
+    except Exception as exc:
+        app.logger.warning("[Inference] Không thể khởi tạo InferenceEngine: %s", exc)
+        inference_engine = None
+        return
+
+    if DEEPFACE_AVAILABLE:
+        try:
+            deepface_strategy = DeepFaceStrategy(
+                data_dir=DATA_DIR,
+                deepface_module=DeepFace,
+                build_db_fn=build_db_from_data_dir,
+                recognize_fn=deepface_recognize,
+                similarity_threshold=DEEPFACE_SIMILARITY_THRESHOLD,
+                enforce_detection=False,
+                logger=app.logger,
+            )
+            inference_engine.add_strategy(deepface_strategy)
+        except Exception as exc:
+            app.logger.warning("[Inference] Không thể khởi tạo DeepFace strategy: %s", exc)
+
+    if USE_FACENET and face_service is not None:
+        try:
+            facenet_strategy = FaceNetStrategy(
+                service=face_service,
+                label_lookup=lookup_student_name,
+                logger=app.logger,
+            )
+            inference_engine.add_strategy(facenet_strategy)
+        except Exception as exc:
+            app.logger.warning("[Inference] Không thể khởi tạo FaceNet strategy: %s", exc)
+
+
+configure_inference_engine()
 
 # ============================================================================
 # HỆ THỐNG NHẬN DIỆN VÀ ĐIỂM DANH - VIẾT LẠI DỰA TRÊN DỰ ÁN THAM KHẢO
 # Logic từ: Cong-Nghe-Xu-Ly-Anh/diemdanh_deepface_gui.py
 # ============================================================================
 
-# Tải khuôn mặt đã biết từ DATA_DIR (giống hệt hệ thống mẫu)
-def load_known_faces():
-    """
-    Load ảnh mẫu và tính embedding bằng DeepFace Facenet512.
-    Logic giống hệt Cong-Nghe-Xu-Ly-Anh/diemdanh_deepface_gui.py
-    """
+def load_known_faces(force_reload: bool = True):
+    """Load known faces, ưu tiên inference engine nếu khả dụng."""
     global known_face_embeddings, known_face_names, known_face_ids
-    
-    app.logger.info(f"[LoadFaces] 🔄 Bắt đầu load khuôn mặt từ {DATA_DIR}...")
-    
-    # Reset
-    known_face_embeddings = []
-    known_face_names = []
-    known_face_ids = []
-    
+
+    app.logger.info(f"[LoadFaces] 🔄 Khởi động lại dữ liệu khuôn mặt từ {DATA_DIR}...")
+
+    engine_ready = inference_engine is not None and inference_engine.has_strategies()
+    if engine_ready:
+        try:
+            summary = (
+                inference_engine.reload()
+                if force_reload
+                else inference_engine.warmup(force=False)
+            )
+            subjects = inference_engine.known_subjects(limit=10_000)
+            known_face_embeddings = []
+            known_face_ids = []
+            known_face_names = []
+            for student_id, name in subjects:
+                normalized_id = (student_id or name or "UNKNOWN").strip()
+                known_face_ids.append(normalized_id)
+                known_face_names.append(name or normalized_id)
+            app.logger.info(
+                "[LoadFaces] ✅ Inference engine sẵn sàng với %d khuôn mặt",
+                len(known_face_ids),
+            )
+            return summary
+        except InferenceError as error:
+            app.logger.warning(
+                "[LoadFaces] ⚠️ Inference engine reload thất bại: %s. Fallback legacy.",
+                error,
+            )
+        except Exception as exc:
+            app.logger.error(
+                "[LoadFaces] ⚠️ Không thể reload inference engine: %s. Fallback legacy.",
+                exc,
+                exc_info=True,
+            )
+
+    if not DEEPFACE_AVAILABLE:
+        app.logger.error(
+            "[LoadFaces] ❌ DeepFace không khả dụng. Vui lòng cài đặt: pip install deepface"
+        )
+        return
+
     if not DATA_DIR.exists():
-        app.logger.warning(f"[LoadFaces] ⚠️ Thư mục {DATA_DIR} không tồn tại, đang tạo mới...")
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         app.logger.info(f"[LoadFaces] ✅ Đã tạo thư mục {DATA_DIR}")
-        return
-    
-    # Kiểm tra DeepFace
-    if not DEEPFACE_AVAILABLE:
-        app.logger.error("[LoadFaces] ❌ DeepFace không khả dụng. Vui lòng cài đặt: pip install deepface")
-        return
-    
-    # Load ảnh mẫu và tính embedding (giống hệt hệ thống mẫu)
+
     app.logger.info("[LoadFaces] [DeepFace] 🧠 Đang tải ảnh mẫu và tính embedding với Facenet512...")
-    
     db_embeddings = []
     db_labels = []
     processed_count = 0
     failed_count = 0
-    
-    # Lấy tất cả file ảnh
     image_files = list(DATA_DIR.glob('*.jpg')) + list(DATA_DIR.glob('*.jpeg')) + list(DATA_DIR.glob('*.png'))
     app.logger.info(f"[LoadFaces] 📁 Tìm thấy {len(image_files)} file ảnh")
-    
+
     for img_path in image_files:
         try:
-            # Parse student info from filename (format: ID_Name.jpg hoặc ID_Name1_Name2.jpg)
             filename = img_path.stem
             import re
             match = re.match(r'^(\d+)_([A-Za-z\s]+)', filename)
@@ -755,7 +801,6 @@ def load_known_faces():
                 student_id = match.group(1)
                 name = match.group(2).strip()
             else:
-                # Fallback: tách bằng underscore
                 parts = filename.split('_')
                 if len(parts) >= 2:
                     student_id = parts[0]
@@ -763,42 +808,62 @@ def load_known_faces():
                 else:
                     student_id = filename
                     name = filename
-            
-            app.logger.debug(f"[LoadFaces] Đang xử lý {img_path.name} -> {name} (ID: {student_id})...")
-            
-            # Tính embedding bằng DeepFace Facenet512 (giống hệt hệ thống mẫu)
+
+            app.logger.debug(
+                f"[LoadFaces] Đang xử lý {img_path.name} -> {name} (ID: {student_id})..."
+            )
+
             embedding = DeepFace.represent(
                 img_path=str(img_path),
                 model_name="Facenet512",
-                enforce_detection=True
+                enforce_detection=True,
             )[0]["embedding"]
-            
+
             db_embeddings.append(embedding)
             db_labels.append((student_id, name))
             processed_count += 1
-            
-            app.logger.info(f"[LoadFaces] ✅ Đã tải khuôn mặt cho {name} (id={student_id}) từ {img_path.name}")
-            
+            app.logger.info(
+                f"[LoadFaces] ✅ Đã tải khuôn mặt cho {name} (id={student_id}) từ {img_path.name}"
+            )
         except Exception as e:
             failed_count += 1
-            app.logger.error(f"[LoadFaces] ❌ Lỗi khi xử lý ảnh mẫu {img_path.name}: {e}", exc_info=True)
-    
-    # Convert sang numpy array (giống hệ thống mẫu)
+            app.logger.error(
+                f"[LoadFaces] ❌ Lỗi khi xử lý ảnh mẫu {img_path.name}: {e}",
+                exc_info=True,
+            )
+
     if len(db_embeddings) > 0:
         known_face_embeddings = np.array(db_embeddings)
-        
-        # Lưu labels
-        for student_id, name in db_labels:
-            known_face_names.append(name)
-            known_face_ids.append(student_id)
-        
-        app.logger.info(f"[LoadFaces] ✅ Đã load {len(known_face_embeddings)} ảnh mẫu với Facenet512 embeddings")
+        known_face_ids = [sid for sid, _ in db_labels]
+        known_face_names = [name for _, name in db_labels]
+        app.logger.info(
+            f"[LoadFaces] ✅ Đã load {len(known_face_embeddings)} ảnh mẫu với Facenet512 embeddings"
+        )
         app.logger.info(f"[LoadFaces] 📋 Known faces: {known_face_names}")
         app.logger.info(f"[LoadFaces] 📋 Known IDs: {known_face_ids}")
         app.logger.info(f"[LoadFaces] 📐 Embeddings shape: {known_face_embeddings.shape}")
-        app.logger.info(f"[LoadFaces] 📊 Kết quả: {processed_count} thành công, {failed_count} thất bại")
+        app.logger.info(
+            f"[LoadFaces] 📊 Kết quả: {processed_count} thành công, {failed_count} thất bại"
+        )
     else:
         app.logger.warning("[LoadFaces] ⚠️ Không load được ảnh nào!")
+
+
+def ensure_legacy_embeddings(force_reload: bool = False) -> None:
+    """Đảm bảo bộ embeddings DeepFace được build khi không có inference engine."""
+    global known_face_embeddings
+    if not DEEPFACE_AVAILABLE:
+        return
+    engine_ready = inference_engine is not None and inference_engine.has_strategies()
+    if engine_ready:
+        return  # ưu tiên inference engine
+    needs_reload = force_reload or not known_face_embeddings or len(known_face_embeddings) == 0
+    if not needs_reload:
+        return
+    try:
+        load_known_faces(force_reload=force_reload)
+    except Exception as exc:
+        app.logger.warning("[LoadFaces] ⚠️ Không thể build legacy embeddings: %s", exc)
 
 def validate_image_file(file_path, is_base64=False):
     """
@@ -925,6 +990,65 @@ def validate_image_file(file_path, is_base64=False):
             
     except Exception as e:
         return False, f"Lỗi không xác định: {str(e)}", 0
+
+
+def recognize_face_candidate(face_img) -> Dict[str, Any]:
+    """Nhận diện khuôn mặt sử dụng inference engine hoặc fallback legacy."""
+    result = {
+        'student_id': 'UNKNOWN',
+        'student_name': 'UNKNOWN',
+        'confidence': 0.0,
+        'strategy': 'none',
+        'status': 'unknown',
+    }
+    engine_ready = inference_engine is not None and inference_engine.has_strategies()
+    if engine_ready:
+        try:
+            inference_result = inference_engine.identify(face_img)
+            sid = inference_result.student_id or 'UNKNOWN'
+            name = inference_result.student_name or (sid if sid != 'UNKNOWN' else 'UNKNOWN')
+            result.update({
+                'student_id': sid,
+                'student_name': name,
+                'confidence': float(inference_result.confidence or 0.0),
+                'strategy': inference_result.strategy or 'inference',
+                'status': inference_result.status or ('match' if sid != 'UNKNOWN' else 'no_match'),
+            })
+            return result
+        except InferenceError as error:
+            app.logger.warning("[Inference] Nhận diện thất bại: %s", error)
+        except Exception as exc:
+            app.logger.error("[Inference] Lỗi nhận diện không xác định: %s", exc, exc_info=True)
+
+    if DEEPFACE_AVAILABLE:
+        ensure_legacy_embeddings(force_reload=False)
+
+    if DEEPFACE_AVAILABLE and known_face_embeddings is not None and len(known_face_embeddings) > 0:
+        try:
+            legacy_embedding = DeepFace.represent(
+                face_img,
+                model_name="Facenet512",
+                enforce_detection=False,
+            )[0]["embedding"]
+            db_labels = list(zip(known_face_ids, known_face_names))
+            student_id, student_name, best_score = deepface_recognize(
+                legacy_embedding,
+                known_face_embeddings,
+                db_labels,
+                threshold=DEEPFACE_SIMILARITY_THRESHOLD,
+            )
+            sid = student_id or 'UNKNOWN'
+            name = student_name or (sid if sid != 'UNKNOWN' else 'UNKNOWN')
+            result.update({
+                'student_id': sid,
+                'student_name': name,
+                'confidence': float(best_score or 0.0),
+                'strategy': 'legacy-deepface',
+                'status': 'match' if student_id else 'no_match',
+            })
+        except Exception as exc:
+            app.logger.error("[Inference] ❌ Lỗi nhận diện legacy: %s", exc, exc_info=True)
+    return result
 
 # Load danh sách đã điểm danh hôm nay từ Database
 def load_today_recorded():
@@ -1375,7 +1499,7 @@ def generate_frames(
     enforce_student_match: bool = False,
     expected_credit_class_id: int = None,
 ):
-    global video_capture, camera_enabled
+    global camera_enabled
     
     app.logger.info("generate_frames() started")
     enforced_student_id = (expected_student_id or '').strip() if enforce_student_match else None
@@ -1383,7 +1507,7 @@ def generate_frames(
     if requested_action not in ('checkin', 'checkout'):
         requested_action = 'auto'
     
-    # Nếu camera bị tắt, yield placeholder và KHÔNG khởi tạo camera
+    # Nếu camera bị tắt, phát placeholder liên tục thay vì khởi tạo camera
     if not camera_enabled:
         placeholder = make_placeholder_frame("Camera đã tắt")
         if placeholder is None:
@@ -1393,17 +1517,11 @@ def generate_frames(
                    b'Content-Type: image/jpeg\r\n\r\n' + placeholder + b'\r\n')
         return
 
-    # Khởi tạo camera nếu chưa có
-    if video_capture is None or not getattr(video_capture, 'isOpened', lambda: False)():
-        ensure_video_capture()
-
-    # Nếu camera không thể mở sau khi khởi tạo, yield hình ảnh placeholder liên tục
-    if video_capture is None or not getattr(video_capture, 'isOpened', lambda: False)():
-        app.logger.error("Khong the mo video capture - phuc vu khung hinh placeholder")
-        placeholder = make_placeholder_frame()
+    pipeline = ensure_camera_pipeline()
+    if pipeline is None:
+        placeholder = make_placeholder_frame("Không thể khởi động camera")
         if placeholder is None:
             return
-        # yield placeholder liên tục để <img> hiển thị gì đó
         while True:
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + placeholder + b'\r\n')
@@ -1412,6 +1530,7 @@ def generate_frames(
     frame_count = 0
     detection_frame_counter = YOLO_FRAME_SKIP  # ép chạy YOLO ngay frame đầu tiên
     cached_face_data = []
+    inference_warmed_up = False
 
     while True:
         # Kiểm tra xem camera có bị tắt không
@@ -1420,30 +1539,27 @@ def generate_frames(
             break
             
         try:
-            # Kiểm tra video_capture trước khi đọc
-            if video_capture is None or not getattr(video_capture, 'isOpened', lambda: False)():
-                app.logger.warning("[Camera] ⚠️ Video capture bị mất kết nối, thử khởi tạo lại...")
-                if camera_enabled:  # Chỉ khởi tạo lại nếu camera đang bật
-                    ensure_video_capture()
-                if video_capture is None:
-                    time.sleep(0.1)
-                    continue
-            
-            ret, frame = video_capture.read()
-            if not ret or frame is None:
-                app.logger.debug("[Camera] ⚠️ Không đọc được frame (ret=False hoặc frame=None)")
-                continue
-            
+            vision_frame = pipeline.get_frame()
+            frame = vision_frame.bgr
             frame_count += 1
-            if frame_count % 30 == 0:  # Log mỗi 30 frames (khoảng 1 giây nếu 30fps)
+            if frame_count % 30 == 0:
                 app.logger.debug(f"[Camera] 📹 Đang đọc frame #{frame_count}...")
-                
-        except Exception as e:
-            app.logger.error(f"[Camera] ❌ Lỗi đọc frame: {e}", exc_info=True)
-            # Thử khởi tạo lại camera chỉ khi camera đang bật
-            if camera_enabled:
-                ensure_video_capture()
-            time.sleep(0.1)
+        except CameraError as exc:
+            app.logger.warning("[Camera] ⚠️ Mất kết nối camera: %s", exc)
+            release_camera_capture()
+            time.sleep(0.2)
+            pipeline = ensure_camera_pipeline()
+            if pipeline is None:
+                placeholder = make_placeholder_frame("Camera lỗi - đang thử lại")
+                if placeholder is None:
+                    break
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + placeholder + b'\r\n')
+                time.sleep(0.5)
+            continue
+        except Exception as exc:
+            app.logger.error(f"[Camera] ❌ Lỗi đọc frame: {exc}", exc_info=True)
+            time.sleep(0.2)
             continue
 
         # lấy kích thước khung hình
@@ -1459,189 +1575,163 @@ def generate_frames(
         face_data = []
         detection_frame_counter += 1
         should_run_detection = detection_frame_counter >= YOLO_FRAME_SKIP
-        
-        if not DEMO_MODE and DEEPFACE_AVAILABLE and YOLO_AVAILABLE and yolo_face_model:
-            global known_face_embeddings, known_face_ids, known_face_names
-            # Kiểm tra xem đã build DB embeddings chưa
-            if known_face_embeddings is None or len(known_face_embeddings) == 0:
-                app.logger.warning("[System] Chưa có DeepFace DB, đang build từ thư mục data/...")
-                embeddings, labels = build_db_from_data_dir(str(DATA_DIR))
-                if embeddings is not None and len(embeddings) > 0:
-                    import numpy as _np
-                    # labels: list[(student_id, name)]
-                    known_face_embeddings = _np.array(embeddings, dtype="float32")
-                    known_face_ids = [sid for sid, _ in labels]
-                    known_face_names = [name for _, name in labels]
-                    app.logger.info(
-                        "[System] ✅ Đã build DeepFace DB: %d embeddings, %d IDs",
-                        known_face_embeddings.shape[0],
-                        len(set(known_face_ids)),
+
+        engine_ready = inference_engine is not None and inference_engine.has_strategies()
+        if engine_ready and not inference_warmed_up:
+            try:
+                inference_engine.warmup(force=False)
+                inference_warmed_up = True
+            except Exception as exc:
+                inference_warmed_up = False
+                app.logger.warning("[Inference] Không thể warmup inference engine: %s", exc)
+                engine_ready = False
+        elif not engine_ready:
+            inference_warmed_up = False
+
+        detection_available = (not DEMO_MODE) and YOLO_AVAILABLE and yolo_face_model is not None
+
+        if detection_available:
+            if should_run_detection:
+                detection_frame_counter = 0
+                detection_frame = frame
+                scale_x = scale_y = 1.0
+                if YOLO_INFERENCE_WIDTH > 0 and frame_w > YOLO_INFERENCE_WIDTH:
+                    detection_width = YOLO_INFERENCE_WIDTH
+                    detection_height = int(frame_h * (detection_width / frame_w))
+                    detection_frame = cv2.resize(
+                        frame,
+                        (detection_width, detection_height),
+                        interpolation=cv2.INTER_LINEAR
                     )
-                else:
-                    app.logger.warning(
-                        "[System] ⚠️ Không build được DB từ %s, bỏ qua nhận diện.", DATA_DIR
-                    )
-            
-            if known_face_embeddings is not None and len(known_face_embeddings) > 0:
-                if should_run_detection:
-                    detection_frame_counter = 0
-                    detection_frame = frame
-                    scale_x = scale_y = 1.0
-                    if YOLO_INFERENCE_WIDTH > 0 and frame_w > YOLO_INFERENCE_WIDTH:
-                        detection_width = YOLO_INFERENCE_WIDTH
-                        detection_height = int(frame_h * (detection_width / frame_w))
-                        detection_frame = cv2.resize(
-                            frame,
-                            (detection_width, detection_height),
-                            interpolation=cv2.INTER_LINEAR
-                        )
-                        scale_x = frame_w / detection_width
-                        scale_y = frame_h / detection_height
+                    scale_x = frame_w / detection_width
+                    scale_y = frame_h / detection_height
 
-                    results = yolo_face_model(detection_frame, verbose=False)[0]
-                    boxes = results.boxes.xyxy.cpu().numpy()
-                    new_face_data = []
+                results = yolo_face_model(detection_frame, verbose=False)[0]
+                boxes = results.boxes.xyxy.cpu().numpy()
+                new_face_data = []
 
-                    for box in boxes:
-                        xmin, ymin, xmax, ymax = map(int, box)
-                        xmin = int(xmin * scale_x)
-                        xmax = int(xmax * scale_x)
-                        ymin = int(ymin * scale_y)
-                        ymax = int(ymax * scale_y)
+                for box in boxes:
+                    xmin, ymin, xmax, ymax = map(int, box)
+                    xmin = int(xmin * scale_x)
+                    xmax = int(xmax * scale_x)
+                    ymin = int(ymin * scale_y)
+                    ymax = int(ymax * scale_y)
 
-                        xmin = max(0, xmin)
-                        ymin = max(0, ymin)
-                        xmax = min(frame_w, xmax)
-                        ymax = min(frame_h, ymax)
+                    xmin = max(0, xmin)
+                    ymin = max(0, ymin)
+                    xmax = min(frame_w, xmax)
+                    ymax = min(frame_h, ymax)
 
-                        face_img = frame[ymin:ymax, xmin:xmax]
-                        if face_img.size == 0:
-                            continue
+                    face_img = frame[ymin:ymax, xmin:xmax]
+                    if face_img.size == 0:
+                        continue
 
-                        student_id = "UNKNOWN"
-                        name = "UNKNOWN"
-                        best_score = 0.0
-                        try:
-                            rep = DeepFace.represent(
-                                face_img,
-                                model_name="Facenet512",
-                                enforce_detection=False,
-                            )[0]["embedding"]
+                    recognition = recognize_face_candidate(face_img)
+                    student_id = (recognition.get('student_id') or 'UNKNOWN').strip() or 'UNKNOWN'
+                    name = recognition.get('student_name') or (student_id if student_id != 'UNKNOWN' else 'UNKNOWN')
+                    confidence_score = float(recognition.get('confidence') or 0.0)
+                    strategy = recognition.get('strategy', 'none')
+                    recognition_status = recognition.get('status', 'unknown')
 
-                            db_labels = list(zip(known_face_ids, known_face_names))
-                            student_id, name, best_score = deepface_recognize(
-                                rep,
-                                known_face_embeddings,
-                                db_labels,
-                                threshold=DEEPFACE_SIMILARITY_THRESHOLD,
-                            )
+                    status = 'unknown'
+                    now = datetime.now()
 
-                            if student_id is None or name is None:
-                                student_id = "UNKNOWN"
-                                name = "UNKNOWN"
-                        except Exception as e:
-                            app.logger.error(f"[System] Lỗi nhận diện DeepFace: {e}", exc_info=True)
+                    if student_id != 'UNKNOWN':
+                        checked_in = student_id in today_checked_in
+                        checked_out = student_id in today_checked_out
+                        with last_recognized_lock:
+                            last_time = last_recognized.get(student_id)
+                            cooldown_passed = not last_time or (now - last_time).total_seconds() > RECOGNITION_COOLDOWN
 
-                        status = 'unknown'
-                        confidence_score = float(best_score or 0.0)
-                        now = datetime.now()
+                        guard_student_id = enforced_student_id if enforce_student_match else None
+                        guard_credit_class = expected_credit_class_id
+                        mismatch = guard_student_id and student_id != guard_student_id
 
-                        if student_id != "UNKNOWN":
-                            checked_in = student_id in today_checked_in
-                            checked_out = student_id in today_checked_out
-                            with last_recognized_lock:
-                                last_time = last_recognized.get(student_id)
-                                cooldown_passed = not last_time or (now - last_time).total_seconds() > RECOGNITION_COOLDOWN
-
-                            guard_student_id = enforced_student_id if enforce_student_match else None
-                            guard_credit_class = expected_credit_class_id
-                            mismatch = guard_student_id and student_id != guard_student_id
-
-                            if mismatch:
-                                status = 'mismatch'
-                            elif requested_action == 'checkout':
-                                if checked_in and not checked_out and cooldown_passed:
-                                    if mark_student_checkout(
-                                        student_id,
-                                        student_name=name,
-                                        reason='auto',
+                        if mismatch:
+                            status = 'mismatch'
+                        elif requested_action == 'checkout':
+                            if checked_in and not checked_out and cooldown_passed:
+                                if mark_student_checkout(
+                                    student_id,
+                                    student_name=name,
+                                    reason='auto',
+                                    confidence_score=confidence_score,
+                                    expected_student_id=guard_student_id,
+                                    expected_credit_class_id=guard_credit_class,
+                                ):
+                                    status = 'checked_out'
+                                    with last_recognized_lock:
+                                        last_recognized[student_id] = now
+                                else:
+                                    status = 'already_marked'
+                            elif not checked_in:
+                                status = 'not_checked_in'
+                            elif checked_out:
+                                status = 'checked_out'
+                            else:
+                                status = 'cooldown'
+                        else:
+                            if not checked_in and cooldown_passed:
+                                try:
+                                    success = mark_attendance(
+                                        name,
+                                        student_id=student_id,
                                         confidence_score=confidence_score,
                                         expected_student_id=guard_student_id,
                                         expected_credit_class_id=guard_credit_class,
-                                    ):
-                                        status = 'checked_out'
+                                    )
+                                    if success:
+                                        status = 'checked_in'
                                         with last_recognized_lock:
                                             last_recognized[student_id] = now
-                                    else:
-                                        status = 'already_marked'
-                                elif not checked_in:
-                                    status = 'not_checked_in'
-                                elif checked_out:
-                                    status = 'checked_out'
-                                else:
-                                    status = 'cooldown'
-                            else:
-                                if not checked_in and cooldown_passed:
-                                    try:
-                                        success = mark_attendance(
-                                            name,
-                                            student_id=student_id,
-                                            confidence_score=confidence_score,
-                                            expected_student_id=guard_student_id,
-                                            expected_credit_class_id=guard_credit_class,
+                                        app.logger.info(
+                                            f"[+] {student_id} - {name} điểm danh lúc {now.strftime('%Y-%m-%d %H:%M:%S')}"
                                         )
-                                        if success:
-                                            status = 'checked_in'
-                                            with last_recognized_lock:
-                                                last_recognized[student_id] = now
-                                            app.logger.info(
-                                                f"[+] {student_id} - {name} điểm danh lúc {now.strftime('%Y-%m-%d %H:%M:%S')}"
-                                            )
-                                    except Exception as e:
-                                        status = 'error'
-                                        app.logger.error(f"[System] Lỗi điểm danh: {e}")
-                                elif (
-                                    requested_action == 'auto'
-                                    and checked_in
-                                    and not checked_out
-                                    and cooldown_passed
+                                except Exception as e:
+                                    status = 'error'
+                                    app.logger.error(f"[System] Lỗi điểm danh: {e}")
+                            elif (
+                                requested_action == 'auto'
+                                and checked_in
+                                and not checked_out
+                                and cooldown_passed
+                            ):
+                                if mark_student_checkout(
+                                    student_id,
+                                    student_name=name,
+                                    reason='auto',
+                                    confidence_score=confidence_score,
                                 ):
-                                    if mark_student_checkout(
-                                        student_id,
-                                        student_name=name,
-                                        reason='auto',
-                                        confidence_score=confidence_score,
-                                    ):
-                                        status = 'checked_out'
-                                        with last_recognized_lock:
-                                            last_recognized[student_id] = now
-                                    else:
-                                        status = 'already_marked'
-                                elif checked_in and not checked_out:
-                                    status = 'already_marked'
-                                elif checked_out:
                                     status = 'checked_out'
+                                    with last_recognized_lock:
+                                        last_recognized[student_id] = now
                                 else:
-                                    status = 'cooldown' if not cooldown_passed else 'already_marked'
+                                    status = 'already_marked'
+                            elif checked_in and not checked_out:
+                                status = 'already_marked'
+                            elif checked_out:
+                                status = 'checked_out'
+                            else:
+                                status = 'cooldown' if not cooldown_passed else 'already_marked'
+                    else:
+                        status = recognition_status or 'unknown'
 
-                        new_face_data.append({
-                            'bbox': (xmin, ymin, xmax, ymax),
-                            'name': name,
-                            'student_id': student_id,
-                            'confidence': confidence_score,
-                            'status': status
-                        })
+                    new_face_data.append({
+                        'bbox': (xmin, ymin, xmax, ymax),
+                        'name': name,
+                        'student_id': student_id,
+                        'confidence': confidence_score,
+                        'status': status,
+                        'strategy': strategy,
+                    })
 
-                    cached_face_data = new_face_data
-                    face_data = new_face_data
-                else:
-                    face_data = cached_face_data or []
+                cached_face_data = new_face_data
+                face_data = new_face_data
             else:
-                cached_face_data = []
-                app.logger.warning("[System] Không có embeddings để nhận diện. Vui lòng thêm ảnh vào thư mục data/")
-        
-        # Demo mode hoặc không có YOLOv8/DeepFace
-        elif DEMO_MODE or not DEEPFACE_AVAILABLE or not YOLO_AVAILABLE:
+                face_data = cached_face_data or []
+
+        # Demo mode hoặc không có YOLOv8
+        elif DEMO_MODE or not YOLO_AVAILABLE or yolo_face_model is None:
             # Tạo một số bounding box mô phỏng ở giữa màn hình
             face_data = []
             
@@ -1813,11 +1903,7 @@ def generate_frames(
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
-    # release
-    with video_lock:
-        cap = video_capture
-        if cap is not None:
-            cap.release()
+    release_camera_capture()
 
 # Routes
 @app.route('/login', methods=['GET', 'POST'])
@@ -1903,73 +1989,76 @@ def video_feed():
         mimetype='multipart/x-mixed-replace; boundary=frame'
     )
 
+
 @app.route('/api/camera/toggle', methods=['POST'])
 @role_required('student')
 def toggle_camera():
-    """API bật/tắt camera"""
-    global camera_enabled, video_capture
+    """API bật/tắt camera pipeline"""
+    global camera_enabled
     try:
-        # Toggle camera enabled state (bật/tắt)
-        camera_enabled = not camera_enabled
-        
-        if not camera_enabled:
-            # Tắt camera - giải phóng hoàn toàn
-            app.logger.info("Turning OFF camera - releasing video capture")
-            with video_lock:
-                if video_capture is not None:
-                    video_capture.release()
-                    video_capture = None
-            time.sleep(0.5)  # Đợi camera giải phóng hoàn toàn
+        desired_state = not camera_enabled
+        camera_enabled = desired_state
+
+        if desired_state:
+            pipeline = ensure_camera_pipeline()
+            if pipeline is None:
+                camera_enabled = False
+                return jsonify({'success': False, 'enabled': camera_enabled, 'error': 'Không thể khởi động camera'}), 500
         else:
-            # Bật camera
-            app.logger.info("Turning ON camera - initializing video capture")
-            time.sleep(0.5)  # Đợi trước khi khởi tạo
-            ensure_video_capture()
-        
+            release_camera_capture()
+
         return jsonify({'success': True, 'enabled': camera_enabled})
-        
-    except Exception as e:
-        app.logger.error(f"Error toggling camera: {e}")
-        return jsonify({'error': str(e)}), 500
+
+    except Exception as exc:
+        app.logger.error(f"Error toggling camera: {exc}")
+        camera_enabled = False
+        release_camera_capture()
+        return jsonify({'success': False, 'enabled': camera_enabled, 'error': str(exc)}), 500
+
 
 @app.route('/api/camera/status', methods=['GET'])
 @role_required('student')
 def camera_status():
     """API kiểm tra trạng thái camera"""
+    state = vision_state or get_or_create_vision_state()
+    status = state.status() if state else {'opened': False}
     return jsonify({
         'enabled': camera_enabled,
-        'opened': video_capture is not None and getattr(video_capture, 'isOpened', lambda: False)()
+        'opened': bool(status.get('opened'))
     })
+
 
 @app.route('/api/camera/capture', methods=['POST'])
 @role_required('student')
 def capture_image():
     """API chụp ảnh từ camera"""
-    global video_capture
-    
     try:
-        if video_capture is None or not getattr(video_capture, 'isOpened', lambda: False)():
-            return jsonify({'error': 'Camera không khả dụng'}), 400
-        
-        ret, frame = video_capture.read()
-        if not ret or frame is None:
+        if not camera_enabled:
+            return jsonify({'error': 'Camera đang tắt'}), 400
+
+        pipeline = ensure_camera_pipeline()
+        if pipeline is None:
+            return jsonify({'error': 'Không thể khởi động camera'}), 500
+
+        try:
+            frame = pipeline.get_frame().bgr
+        except CameraError as exc:
+            app.logger.error(f"Error capturing image: {exc}")
             return jsonify({'error': 'Không thể đọc frame từ camera'}), 400
-        
-        # Flip frame horizontally (mirror effect)
+
         frame = cv2.flip(frame, 1)
-        
-        # Encode frame to base64 with reduced quality to save CPU/bandwidth
+
         ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
         if not ret:
             return jsonify({'error': 'Không thể mã hóa frame'}), 400
-        
+
         frame_base64 = base64.b64encode(buffer).decode('utf-8')
-        
+
         return jsonify({
             'success': True,
             'image': f'data:image/jpeg;base64,{frame_base64}'
         })
-        
+
     except Exception as e:
         app.logger.error(f"Error capturing image: {e}")
         return jsonify({'error': str(e)}), 500
@@ -2403,41 +2492,31 @@ def api_teacher_credit_class_students(credit_class_id):
         return jsonify({'success': False, 'message': 'Không có quyền truy cập lớp này'}), 403
 
     try:
-        roster = db.get_credit_class_students(credit_class_id)
-        # Lấy dữ liệu điểm danh hôm nay để xác định trạng thái từng sinh viên
+        roster = db.get_credit_class_students(credit_class_id) or []
         today_attendance = db.get_today_attendance() or []
+
         present_map = {}
-        for a in today_attendance:
-            try:
-                sid = a.get('student_id')
-            except Exception:
-                sid = None
+        for att in today_attendance:
+            sid = (att or {}).get('student_id')
             if not sid:
                 continue
-            # if credit_class_id present on attendance record, map per-class
-            if a.get('credit_class_id') and int(a.get('credit_class_id')) == int(credit_class_id):
-                present_map[sid] = {
-                    'check_in_time': a.get('check_in_time'),
-                    'check_out_time': a.get('check_out_time'),
-                    'attendance_id': a.get('id')
-                }
-        class_map = {}
+            present_map[sid] = {
+                'attendance_id': att.get('attendance_id'),
+                'check_in_time': att.get('check_in_time'),
+                'checkout_time': att.get('checkout_time'),
+                'checked_out': bool(att.get('checkout_time')),
+            }
+
         serialized = []
         for student in roster:
-            class_id = student.get('class_id')
-            if class_id and class_id not in class_map:
-                class_info = db.get_class_by_id(class_id)
-                if class_info:
-                    class_map[class_id] = class_info.get('class_name')
-            srec = serialize_student_record(student, class_map)
-            # Gắn trạng thái điểm danh hôm nay (nếu có) cho lớp tín chỉ này
-            student_code = srec.get('student_id')
-            att = present_map.get(student_code)
-            if att:
+            srec = dict(student)
+            sid = srec.get('student_id')
+            attendance_info = present_map.get(sid)
+            if attendance_info:
                 srec['is_present_today'] = True
-                srec['checked_out'] = bool(att.get('check_out_time'))
-                srec['attendance_id'] = att.get('attendance_id')
-                srec['check_in_time'] = att.get('check_in_time')
+                srec['checked_out'] = attendance_info.get('checked_out', False)
+                srec['attendance_id'] = attendance_info.get('attendance_id')
+                srec['check_in_time'] = attendance_info.get('check_in_time')
             else:
                 srec['is_present_today'] = False
                 srec['checked_out'] = False
@@ -2487,9 +2566,11 @@ def api_student_credit_classes():
         return jsonify({'success': False, 'message': 'Không tìm thấy sinh viên'}), 404
 
     try:
-        classes = db.get_credit_classes_for_student(student.get('student_id'))
+        student_identifier = student.get('id') or student.get('student_id')
+        classes = db.get_credit_classes_for_student(student_identifier)
         formatted = []
         active_sessions = 0
+        known_class_ids = set()
         for cls in classes:
             session_row = db.get_active_session_for_class(cls['id'])
             if session_row:
@@ -2499,7 +2580,30 @@ def api_student_credit_classes():
                 part for part in [cls.get('subject_name'), cls.get('credit_code')] if part
             ) or cls.get('subject_name') or cls.get('credit_code')
             entry['active_session'] = serialize_session_payload(session_row)
+            known_class_ids.add(cls.get('id'))
             formatted.append(entry)
+
+        # Nếu sinh viên chưa đăng ký nhưng đang có phiên mở, hiển thị ở dạng session-only
+        fallback_session = get_active_attendance_session()
+        if fallback_session:
+            fallback_class_id = fallback_session.get('credit_class_id')
+            if fallback_class_id and fallback_class_id not in known_class_ids:
+                credit_cls = db.get_credit_class(fallback_class_id)
+                if credit_cls:
+                    entry = dict(credit_cls)
+                    entry['display_name'] = ' · '.join(
+                        part for part in [credit_cls.get('subject_name'), credit_cls.get('credit_code')] if part
+                    ) or credit_cls.get('subject_name') or credit_cls.get('credit_code')
+                    entry['active_session'] = serialize_session_payload(fallback_session)
+                    entry['is_session_only'] = True
+                    if 'student_count' not in entry or entry.get('student_count') is None:
+                        try:
+                            roster = db.get_credit_class_students(fallback_class_id) or []
+                            entry['student_count'] = len(roster)
+                        except Exception:
+                            entry['student_count'] = 0
+                    formatted.insert(0, entry)
+                    active_sessions += 1 if (fallback_session.get('status') == 'open') else 0
 
         summary = {
             'total_classes': len(formatted),

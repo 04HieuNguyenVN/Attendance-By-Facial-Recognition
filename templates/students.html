@@ -490,11 +490,16 @@
                         throw new Error(message);
                     }
 
+                    const credentials = result && result.credentials ? result.credentials : null;
                     this.showNotification('Thêm sinh viên thành công!', 'success');
                     bootstrap.Modal.getInstance(document.getElementById('addStudentModal')).hide();
                     form.reset();
                     await this.loadStudents();
                     await this.loadClasses(true);
+
+                    if (credentials && typeof window.showCredentialModal === 'function') {
+                        window.showCredentialModal(credentials);
+                    }
                 } catch (error) {
                     console.error('Error adding student:', error);
                     this.showNotification('Lỗi khi thêm sinh viên: ' + error.message, 'error');

@@ -363,6 +363,26 @@ $env:DEMO_MODE="1"
 
 > Lưu ý: nếu chưa cài `face_recognition`, script vẫn chạy ở chế độ demo và chỉ hiển thị dấu thời gian.
 
+## 📚 Dữ liệu mẫu lớp tín chỉ
+
+Muốn có sẵn vài lớp tín chỉ cùng sinh viên thử nghiệm? Chạy script seed sau (sau khi kích hoạt virtualenv):
+
+```powershell
+.\.venv\Scripts\python.exe tools/seed_credit_classes.py
+```
+
+Kịch bản sẽ tạo ba lớp tín chỉ demo, thêm ba sinh viên mẫu (nếu chưa tồn tại) và tự động ghi danh họ để bạn có thể mở phiên điểm danh ngay.
+
+### Dọn dữ liệu điểm danh cũ
+
+Khi cần reset toàn bộ phiên và bản ghi điểm danh để thử nghiệm lại từ đầu, chạy:
+
+```powershell
+.\.venv\Scripts\python.exe tools/reset_attendance_records.py
+```
+
+Script sẽ xóa sạch bảng điểm danh, phiên và lịch sử liên quan trong SQLite, tránh xung đột dữ liệu cũ.
+
 ## 🌐 Truy cập ứng dụng
 
 Mở trình duyệt và truy cập: **http://localhost:5000**

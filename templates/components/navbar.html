@@ -1,7 +1,11 @@
 <!-- Navigation Component -->
 <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
   <div class="container-fluid">
-    <a class="navbar-brand" href="/">
+    {% set brand_href = url_for('index') %} {% if current_user %} {% set role =
+    (current_role or current_user.role or '')|lower %} {% if role == 'student'
+    %} {% set brand_href = url_for('student_portal_page') %} {% endif %} {%
+    endif %}
+    <a class="navbar-brand" href="{{ brand_href }}">
       <img src="/static/img/logoEAUT.png" alt="Logo EAUT" class="navbar-logo" />
       Hệ thống điểm danh thông minh
     </a>
@@ -19,15 +23,16 @@
       '')|lower %} {% set is_admin = role == 'admin' %} {% set is_teacher = role
       == 'teacher' %} {% set is_student = role == 'student' %}
       <ul class="navbar-nav me-auto">
+        {%- if not is_student -%}
         <li class="nav-item">
           <a
             class="nav-link {% if active_page == 'home' %}active{% endif %}"
-            href="/"
+            href="{{ url_for('index') }}"
           >
             <i class="fas fa-home me-1"></i>Trang chủ
           </a>
         </li>
-        {%- if is_admin %}
+        {%- endif -%} {%- if is_admin %}
         <li class="nav-item">
           <a
             class="nav-link {% if active_page == 'students' %}active{% endif %}"

@@ -347,6 +347,23 @@ class DatabaseManager:
             row = cursor.fetchone()
             return dict(row) if row else None
 
+    def create_user(self, username, password_hash, full_name, role='student', email=None, is_active=True):
+        """Tạo tài khoản người dùng mới và trả về ID."""
+        if not username or not password_hash or not full_name:
+            raise ValueError("Thiếu thông tin tạo tài khoản người dùng")
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute('''
+                    INSERT INTO users (username, password_hash, full_name, role, email, is_active)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (username, password_hash, full_name, role or 'student', email, 1 if is_active else 0))
+                conn.commit()
+                return cursor.lastrowid
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(f"Tài khoản {username} đã tồn tại") from exc
+
     def update_user_password(self, user_id, password_hash):
         """Cập nhật mật khẩu người dùng."""
         if not user_id or not password_hash:
@@ -372,6 +389,20 @@ class DatabaseManager:
             )
             conn.commit()
             return cursor.rowcount > 0
+
+    def get_students_missing_user(self, active_only=True):
+        """Trả về danh sách sinh viên chưa được gán tài khoản người dùng."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            query = [
+                'SELECT * FROM students',
+                'WHERE (user_id IS NULL OR user_id = "" OR user_id = 0)'
+            ]
+            if active_only:
+                query.append('AND is_active = 1')
+            query.append('ORDER BY full_name')
+            cursor.execute(' '.join(query))
+            return cursor.fetchall()
 
     def _ensure_column(self, cursor, table_name, column_name, column_def):
         """Thêm cột mới nếu chưa tồn tại (dùng cho nâng cấp DB)."""
@@ -1342,6 +1373,159 @@ class DatabaseManager:
             ''', (credit_class_id, student_db_id))
             conn.commit()
             return cursor.rowcount > 0
+
+    def clear_attendance_records(self):
+        """Xóa toàn bộ bản ghi điểm danh để tránh xung đột dữ liệu cũ."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            table_names = self._table_names(cursor)
+            cursor.execute('DELETE FROM attendance_records')
+            cursor.execute('DELETE FROM attendance_sessions')
+            if 'attendance_history' in table_names:
+                cursor.execute('DELETE FROM attendance_history')
+            conn.commit()
+
+    def _table_names(self, cursor):
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        return {row['name'] if isinstance(row, sqlite3.Row) else row[0] for row in cursor.fetchall()}
+
+    def seed_sample_credit_classes(self):
+        """Tạo dữ liệu mẫu cho lớp tín chỉ và ghi danh sinh viên thử nghiệm."""
+        sample_classes = [
+            {
+                'credit_code': 'ICT1001',
+                'subject_name': 'Nhập môn Lập trình',
+                'semester': 'HK1',
+                'academic_year': '2025-2026',
+                'room': 'Lab A1.03',
+                'schedule_info': 'Thứ 2 · Tiết 1-3',
+                'notes': 'Lớp thực hành Python'
+            },
+            {
+                'credit_code': 'BUS2003',
+                'subject_name': 'Kỹ năng mềm cho kỹ sư',
+                'semester': 'HK1',
+                'academic_year': '2025-2026',
+                'room': 'B203',
+                'schedule_info': 'Thứ 4 · Tiết 4-6'
+            },
+            {
+                'credit_code': 'AI3002',
+                'subject_name': 'Thị giác máy tính ứng dụng',
+                'semester': 'HK2',
+                'academic_year': '2025-2026',
+                'room': 'Lab AI',
+                'schedule_info': 'Thứ 6 · Tiết 1-3',
+                'notes': 'Điểm danh bằng camera DeepFace'
+            },
+        ]
+
+        sample_students = [
+            {
+                'student_id': 'SV1001',
+                'full_name': 'Nguyễn Minh An',
+                'email': 'an.nguyen@example.com',
+                'phone': '0901001001',
+                'class_name': 'KTPM20A'
+            },
+            {
+                'student_id': 'SV1002',
+                'full_name': 'Trần Thị Bảo',
+                'email': 'bao.tran@example.com',
+                'phone': '0902002002',
+                'class_name': 'KTPM20A'
+            },
+            {
+                'student_id': 'SV1003',
+                'full_name': 'Phạm Quốc Cường',
+                'email': 'cuong.pham@example.com',
+                'phone': '0903003003',
+                'class_name': 'KTPM20B'
+            },
+        ]
+
+        enrollments = {
+            'ICT1001': ['SV1001', 'SV1002'],
+            'BUS2003': ['SV1001', 'SV1003'],
+            'AI3002': ['SV1002', 'SV1003'],
+        }
+
+        summary = {
+            'classes_created': 0,
+            'students_created': 0,
+            'enrollments_created': 0,
+        }
+
+        teacher_id = None
+        try:
+            teacher_user = self.get_user_by_username('teacher')
+            if teacher_user:
+                teacher = self.get_teacher_by_user(teacher_user['id'])
+                if teacher:
+                    teacher_id = teacher.get('id')
+                else:
+                    teacher_id = self.create_teacher(
+                        teacher_code='GV-DEMO',
+                        full_name=teacher_user.get('full_name') or 'Giảng viên demo',
+                        email=teacher_user.get('email'),
+                        phone=teacher_user.get('phone'),
+                        department='Demo',
+                        user_id=teacher_user['id']
+                    )
+        except Exception as exc:
+            logger.warning("Không thể tạo hồ sơ giảng viên mẫu: %s", exc)
+
+        class_ids = {}
+        for sample in sample_classes:
+            existing = self.get_credit_class_by_code(sample['credit_code'])
+            if existing:
+                class_ids[sample['credit_code']] = existing['id']
+                continue
+            class_id = self.create_credit_class(
+                credit_code=sample['credit_code'],
+                subject_name=sample['subject_name'],
+                teacher_id=teacher_id,
+                semester=sample.get('semester'),
+                academic_year=sample.get('academic_year'),
+                room=sample.get('room'),
+                schedule_info=sample.get('schedule_info'),
+                enrollment_limit=sample.get('enrollment_limit'),
+                notes=sample.get('notes'),
+                status='published'
+            )
+            class_ids[sample['credit_code']] = class_id
+            summary['classes_created'] += 1
+
+        for student in sample_students:
+            existing = self.get_student(student['student_id'])
+            if existing:
+                continue
+            created = self.add_student(
+                student['student_id'],
+                student['full_name'],
+                email=student.get('email'),
+                phone=student.get('phone'),
+                class_name=student.get('class_name')
+            )
+            if created:
+                summary['students_created'] += 1
+
+        for credit_code, student_ids in enrollments.items():
+            credit_class_id = class_ids.get(credit_code)
+            if not credit_class_id:
+                continue
+            for student_id in student_ids:
+                try:
+                    if self.enroll_student_to_credit_class(credit_class_id, student_id):
+                        summary['enrollments_created'] += 1
+                except ValueError as exc:
+                    logger.debug("Không thể ghi danh %s vào %s: %s", student_id, credit_code, exc)
+
+        logger.info(
+            "Seeded credit classes: %(classes_created)s lớp, %(students_created)s sinh viên, %(enrollments_created)s ghi danh",
+            summary
+        )
+        return summary
 
     def get_credit_class_students(self, credit_class_id):
         with self.get_connection() as conn:

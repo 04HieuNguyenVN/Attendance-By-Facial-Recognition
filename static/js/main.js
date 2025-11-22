@@ -13,6 +13,105 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ========================================
+// ATTENDANCE API CLIENT
+// ========================================
+class AttendanceAPI {
+  constructor(fetcher) {
+    this.fetcher = fetcher;
+  }
+
+  withCacheBuster(path, enable = true) {
+    if (!enable) {
+      return path;
+    }
+    const separator = path.includes("?") ? "&" : "?";
+    return `${path}${separator}t=${Date.now()}`;
+  }
+
+  getSession(options = {}) {
+    return this.fetcher(
+      this.withCacheBuster(
+        "/api/attendance/session",
+        options.cacheBust !== false
+      ),
+      { headers: { "Cache-Control": "no-cache" } }
+    );
+  }
+
+  openSession(creditClassId, payload = {}) {
+    return this.fetcher("/api/attendance/session/open", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credit_class_id: creditClassId, ...payload }),
+    });
+  }
+
+  closeSession(payload = {}) {
+    return this.fetcher("/api/attendance/session/close", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  manualMark(sessionId, payload) {
+    return this.fetcher(`/api/attendance/session/${sessionId}/mark`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  getTodayAttendance(options = {}) {
+    return this.fetcher(
+      this.withCacheBuster(
+        "/api/attendance/today",
+        options.cacheBust !== false
+      ),
+      { headers: { "Cache-Control": "no-cache" } }
+    );
+  }
+
+  getStudentHistory(studentId, options = {}) {
+    if (!studentId) {
+      throw new Error("studentId is required");
+    }
+    const params = new URLSearchParams();
+    if (options.limit) {
+      params.set("limit", options.limit);
+    }
+    if (options.cacheBust !== false) {
+      params.set("t", Date.now());
+    }
+    const query = params.toString();
+    return this.fetcher(
+      `/api/attendance/history/${encodeURIComponent(studentId)}${
+        query ? `?${query}` : ""
+      }`,
+      { headers: { "Cache-Control": "no-cache" } }
+    );
+  }
+
+  getStatistics(options = {}) {
+    return this.fetcher(
+      this.withCacheBuster("/api/statistics", options.cacheBust !== false),
+      {
+        headers: { "Cache-Control": "no-cache" },
+      }
+    );
+  }
+
+  getActivePresence(options = {}) {
+    return this.fetcher(
+      this.withCacheBuster("/api/presence/active", options.cacheBust !== false),
+      {
+        headers: { "Cache-Control": "no-cache" },
+      }
+    );
+  }
+}
+
+// ========================================
 // MAIN APP CLASS
 // ========================================
 class MainApp {
@@ -61,10 +160,22 @@ class MainApp {
     this.studentCurrentAction = "checkin";
     this.studentSessionState = null;
     this.studentCameraActive = false;
+    this.studentProfileForm = null;
+    this.studentProfileAlert = null;
+    this.studentProfileSaveBtn = null;
+    this.studentPendingSessionClassId = null;
+    this.credentialModal = null;
+    this.credentialModalEl = null;
+    this.credentialCopyButtons = [];
+    this.credentialModalCloseCallback = null;
+    this.api = new AttendanceAPI((url, options) =>
+      this.fetchJson(url, options)
+    );
   }
 
   init() {
     this.initUI();
+    this.initCredentialModal();
     this.initSSE();
     this.initCamera();
     this.initQuickRegister();
@@ -80,6 +191,125 @@ class MainApp {
 
   initUI() {
     // Add any general UI initializations here
+  }
+
+  initCredentialModal() {
+    this.credentialModalEl = document.getElementById("credentialModal");
+    if (!this.credentialModalEl) {
+      window.showCredentialModal = (payload = {}) => {
+        if (payload.username || payload.password) {
+          alert(
+            `Tài khoản: ${payload.username || ""}\nMật khẩu: ${
+              payload.password || ""
+            }`
+          );
+        }
+      };
+      return;
+    }
+
+    this.credentialModal = new bootstrap.Modal(this.credentialModalEl);
+    this.credentialCopyButtons = Array.from(
+      this.credentialModalEl.querySelectorAll("[data-credential-copy]") || []
+    );
+    this.credentialCopyButtons.forEach((btn) => {
+      btn.dataset.defaultLabel = btn.innerHTML;
+      btn.addEventListener("click", () => this.handleCredentialCopy(btn));
+    });
+
+    this.credentialModalEl.addEventListener("hidden.bs.modal", () => {
+      if (typeof this.credentialModalCloseCallback === "function") {
+        const callback = this.credentialModalCloseCallback;
+        this.credentialModalCloseCallback = null;
+        callback();
+      }
+    });
+
+    window.showCredentialModal = (payload = {}, options = {}) =>
+      this.presentCredentialModal(payload, options);
+  }
+
+  resetCredentialCopyLabels() {
+    if (!this.credentialCopyButtons || !this.credentialCopyButtons.length) {
+      return;
+    }
+    this.credentialCopyButtons.forEach((btn) => {
+      if (btn.dataset && btn.dataset.defaultLabel) {
+        btn.innerHTML = btn.dataset.defaultLabel;
+      }
+    });
+  }
+
+  async handleCredentialCopy(button) {
+    if (!button || !this.credentialModalEl) {
+      return;
+    }
+    const target = button.getAttribute("data-credential-copy");
+    if (!target) {
+      return;
+    }
+    const input = this.credentialModalEl.querySelector(
+      `[data-credential-input="${target}"]`
+    );
+    if (!input || !input.value) {
+      return;
+    }
+
+    const fallback = () => {
+      window.prompt("Nhấn Ctrl+C để sao chép", input.value);
+    };
+
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(input.value);
+      } else {
+        fallback();
+      }
+      button.innerHTML = '<i class="fas fa-check me-1"></i>Đã chép';
+      setTimeout(() => {
+        if (button.dataset && button.dataset.defaultLabel) {
+          button.innerHTML = button.dataset.defaultLabel;
+        }
+      }, 2000);
+    } catch (error) {
+      console.warn("Không thể sao chép tự động", error);
+      fallback();
+    }
+  }
+
+  presentCredentialModal(payload = {}, options = {}) {
+    if (!this.credentialModal || !this.credentialModalEl) {
+      return;
+    }
+
+    const usernameInput = this.credentialModalEl.querySelector(
+      '[data-credential-input="username"]'
+    );
+    const passwordInput = this.credentialModalEl.querySelector(
+      '[data-credential-input="password"]'
+    );
+    const studentLabel = this.credentialModalEl.querySelector(
+      '[data-credential-display="student"]'
+    );
+
+    if (usernameInput) {
+      usernameInput.value = payload.username || "";
+    }
+    if (passwordInput) {
+      passwordInput.value = payload.password || "";
+    }
+    if (studentLabel) {
+      const studentText =
+        payload.full_name && payload.student_id
+          ? `${payload.full_name} (${payload.student_id})`
+          : payload.full_name || payload.student_id || "-";
+      studentLabel.textContent = studentText;
+    }
+
+    this.resetCredentialCopyLabels();
+    this.credentialModalCloseCallback =
+      typeof options.onClose === "function" ? options.onClose : null;
+    this.credentialModal.show();
   }
 
   // ========================================
@@ -132,6 +362,20 @@ class MainApp {
     this.refreshAttendanceList(true);
     this.updateStatistics();
     this.updateActivePresence();
+
+    if (
+      this.studentPortalEl &&
+      this.studentCameraActive &&
+      payload.student_id &&
+      this.studentPortalEl.dataset.studentId &&
+      String(payload.student_id) === this.studentPortalEl.dataset.studentId
+    ) {
+      const message =
+        eventPacket.type === "attendance_checkout"
+          ? "Bạn đã checkout thành công."
+          : "Bạn đã điểm danh thành công.";
+      this.stopStudentCamera(message);
+    }
   }
 
   showAttendanceNotification(data = {}, eventType = "attendance_marked") {
@@ -281,10 +525,36 @@ class MainApp {
         const data = await response.json();
         if (response.ok && data.success) {
           resultDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
-          setTimeout(() => {
+
+          const resetFormState = () => {
+            form.reset();
+            this.capturedImageData = null;
+            this.toggleRegisterCameraUI(false);
+            resultDiv.innerHTML = "";
+          };
+
+          const finishAndReload = () => {
+            resetFormState();
             quickRegisterModal.hide();
-            location.reload();
-          }, 1500);
+            window.location.reload();
+          };
+
+          if (data.credentials) {
+            quickRegisterModal.hide();
+            const credentialPayload = {
+              student_id:
+                data.credentials.student_id || formData.get("student_id") || "",
+              full_name:
+                data.credentials.full_name || formData.get("full_name") || "",
+              username: data.credentials.username,
+              password: data.credentials.password,
+            };
+            this.presentCredentialModal(credentialPayload, {
+              onClose: finishAndReload,
+            });
+          } else {
+            setTimeout(finishAndReload, 1500);
+          }
         } else {
           resultDiv.innerHTML = `<div class="alert alert-danger">${
             data.error || "Đăng ký thất bại"
@@ -781,14 +1051,7 @@ class MainApp {
       return;
     try {
       const payload = { student_id: studentId, action };
-      const res = await this.fetchJson(
-        `/api/attendance/session/${sessionId}/mark`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        }
-      );
+      const res = await this.api.manualMark(sessionId, payload);
       if (res && res.success) {
         // reload modal roster to reflect status
         const classId =
@@ -886,6 +1149,11 @@ class MainApp {
       "student-camera-wrapper"
     );
     this.studentVideoEl = document.getElementById("video-stream");
+    this.studentProfileForm = document.getElementById("student-profile-form");
+    this.studentProfileAlert = document.getElementById("student-profile-alert");
+    this.studentProfileSaveBtn = document.getElementById(
+      "student-profile-save"
+    );
 
     if (this.studentCameraSlot && this.studentCameraWrapper) {
       this.studentCameraSlot.appendChild(this.studentCameraWrapper);
@@ -911,6 +1179,12 @@ class MainApp {
     }
 
     this.bindStudentCameraControls();
+    if (this.studentProfileForm) {
+      this.studentProfileForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        this.submitStudentProfile();
+      });
+    }
 
     const refreshBtn = document.getElementById("student-refresh");
     if (refreshBtn) {
@@ -985,6 +1259,126 @@ class MainApp {
     }
   }
 
+  setStudentProfileAlert(message = "", variant = "info") {
+    if (!this.studentProfileAlert) {
+      return;
+    }
+    const alertEl = this.studentProfileAlert;
+    alertEl.classList.remove("alert-info", "alert-success", "alert-danger");
+    if (!message) {
+      alertEl.classList.add("d-none");
+      alertEl.textContent = "";
+      return;
+    }
+    alertEl.textContent = message;
+    alertEl.classList.remove("d-none");
+    alertEl.classList.add(`alert-${variant}`);
+  }
+
+  updateStudentProfileSummary(student = {}) {
+    if (!student) {
+      return;
+    }
+    const nameEl = document.getElementById("student-profile-name");
+    if (nameEl && student.full_name) {
+      nameEl.textContent = student.full_name;
+    }
+    const codeEl = document.getElementById("student-profile-code");
+    if (codeEl && student.student_id) {
+      codeEl.textContent = `MSSV: ${student.student_id}`;
+    }
+    const emailEl = document.getElementById("student-profile-email");
+    if (emailEl) {
+      emailEl.textContent = student.email || "—";
+    }
+    const phoneEl = document.getElementById("student-profile-phone");
+    if (phoneEl) {
+      phoneEl.textContent = student.phone || "—";
+    }
+
+    if (this.studentProfileForm) {
+      const nameField = document.getElementById(
+        "student-profile-field-full-name"
+      );
+      if (nameField && student.full_name) {
+        nameField.value = student.full_name;
+      }
+      const emailField = document.getElementById("student-profile-field-email");
+      if (emailField) {
+        emailField.value = student.email || "";
+      }
+      const phoneField = document.getElementById("student-profile-field-phone");
+      if (phoneField) {
+        phoneField.value = student.phone || "";
+      }
+    }
+
+    if (this.studentPortalEl) {
+      if (student.student_id) {
+        this.studentPortalEl.dataset.studentId = student.student_id;
+      }
+      this.studentPortalEl.dataset.studentName = student.full_name || "";
+      this.studentPortalEl.dataset.studentEmail = student.email || "";
+      this.studentPortalEl.dataset.studentPhone = student.phone || "";
+    }
+  }
+
+  async submitStudentProfile() {
+    if (!this.studentProfileForm) {
+      return;
+    }
+
+    const formData = new FormData(this.studentProfileForm);
+    const payload = {
+      full_name: (formData.get("full_name") || "").trim(),
+      email: (formData.get("email") || "").trim(),
+      phone: (formData.get("phone") || "").trim(),
+    };
+
+    if (!payload.full_name) {
+      this.setStudentProfileAlert("Họ và tên không được để trống.", "danger");
+      return;
+    }
+
+    this.setStudentProfileAlert("Đang lưu thông tin...", "info");
+    if (this.studentProfileSaveBtn) {
+      const btn = this.studentProfileSaveBtn;
+      if (!btn.dataset.originalText) {
+        btn.dataset.originalText = btn.innerHTML;
+      }
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Đang lưu...';
+    }
+
+    try {
+      const response = await this.fetchJson("/api/student/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      this.setStudentProfileAlert(
+        response.message || "Đã lưu thông tin cá nhân",
+        "success"
+      );
+      if (response.student) {
+        this.updateStudentProfileSummary(response.student);
+      }
+    } catch (error) {
+      this.setStudentProfileAlert(
+        error.message || "Không thể lưu thông tin",
+        "danger"
+      );
+    } finally {
+      if (this.studentProfileSaveBtn) {
+        const btn = this.studentProfileSaveBtn;
+        btn.disabled = false;
+        btn.innerHTML =
+          btn.dataset.originalText ||
+          '<i class="fas fa-save me-1"></i>Lưu thay đổi';
+      }
+    }
+  }
+
   async fetchStudentClasses(forceReload = false) {
     if (!this.studentPortalEl || !this.studentPortalEl.dataset.studentId) {
       return;
@@ -1034,9 +1428,13 @@ class MainApp {
       const col = document.createElement("div");
       col.className = "col-12 col-md-6";
       const activeSession = cls.active_session;
+      const isSessionOnly = Boolean(cls.is_session_only);
       const sessionPill = activeSession
         ? `<span class="session-pill bg-success text-white"><i class="fas fa-satellite-dish me-1"></i>Đang mở</span>`
         : `<span class="session-pill bg-light text-muted"><i class="fas fa-clock me-1"></i>Đang đóng</span>`;
+      const sessionOnlyBadge = isSessionOnly
+        ? '<span class="badge bg-warning text-dark ms-2">Chưa ghi danh</span>'
+        : "";
       col.innerHTML = `
         <div class="student-class-card h-100">
           <div class="d-flex justify-content-between align-items-start mb-2">
@@ -1048,7 +1446,7 @@ class MainApp {
                 cls.credit_code || "---"
               )}</div>
             </div>
-            ${sessionPill}
+            <div class="d-flex align-items-center">${sessionPill}${sessionOnlyBadge}</div>
           </div>
           <p class="mb-1 text-muted"><i class="fas fa-location-dot me-1"></i>${this.escapeHtml(
             cls.room || "Chưa có phòng"
@@ -1064,6 +1462,11 @@ class MainApp {
               cls.semester || "---"
             }</span>
           </div>
+          ${
+            isSessionOnly
+              ? '<p class="text-muted small mt-2"><i class="fas fa-info-circle me-1"></i>Phiên điểm danh đang mở cho lớp này. Bạn chưa được ghi danh chính thức.</p>'
+              : ""
+          }
         </div>`;
       fragment.appendChild(col);
     });
@@ -1075,6 +1478,7 @@ class MainApp {
       return;
     }
     const previousValue = this.studentClassSelectEl.value;
+    let autoSelectValue = "";
     this.studentClassSelectEl.innerHTML =
       '<option value="">Chọn lớp tín chỉ</option>';
 
@@ -1093,14 +1497,45 @@ class MainApp {
       );
       if (cls.active_session) {
         option.dataset.sessionStatus = "open";
+        if (!previousValue && !autoSelectValue && option.value) {
+          autoSelectValue = option.value;
+        }
+      }
+      if (cls.is_session_only) {
+        option.dataset.sessionTemporary = "true";
+        option.textContent += " (Phiên đang mở)";
       }
       this.studentClassSelectEl.appendChild(option);
     });
 
+    let targetValue = "";
     if (previousValue) {
-      this.studentClassSelectEl.value = previousValue;
+      targetValue = previousValue;
+    } else if (this.studentPendingSessionClassId) {
+      targetValue = String(this.studentPendingSessionClassId);
+    } else if (autoSelectValue) {
+      targetValue = autoSelectValue;
+    }
+
+    if (targetValue) {
+      const optionExists = Array.from(this.studentClassSelectEl.options).some(
+        (option) => option.value && option.value === targetValue
+      );
+      if (optionExists) {
+        this.studentClassSelectEl.value = targetValue;
+        if (
+          this.studentPendingSessionClassId &&
+          String(this.studentPendingSessionClassId) === targetValue
+        ) {
+          this.studentPendingSessionClassId = null;
+        }
+      }
     }
     this.studentSelectedClassId = this.studentClassSelectEl.value;
+
+    if (!previousValue && this.studentClassSelectEl.value) {
+      this.validateStudentSession(false);
+    }
   }
 
   showStudentSessionAlert(message = "", isError = false, hide = false) {
@@ -1158,37 +1593,131 @@ class MainApp {
     this.setStudentSessionHint("Đang xác thực phiên với giảng viên...");
 
     try {
-      const payload = await this.fetchJson(
-        `/api/attendance/session?t=${Date.now()}`
-      );
-      const session = payload.session || null;
-      if (session && Number(session.credit_class_id) === classId) {
-        this.studentSessionState = session;
-        this.studentStartBtn.disabled = false;
-        const expiresText = session.expires_at
-          ? this.formatDateTime(session.expires_at)
-          : "chưa xác định";
-        this.showStudentSessionAlert(
-          `Phiên đang mở đến ${expiresText}. Bạn có thể bắt đầu.`,
-          false
-        );
-        this.setStudentSessionHint("Sẵn sàng bật camera để điểm danh.");
-      } else {
-        this.studentSessionState = null;
-        this.studentStartBtn.disabled = true;
-        this.toggleStudentCameraCard(false);
-        this.showStudentSessionAlert(
-          "Lớp này hiện chưa có phiên điểm danh mở.",
-          true
-        );
-        this.setStudentSessionHint("Vui lòng liên hệ giảng viên để mở phiên.");
-      }
+      const payload = await this.api.getSession();
+      this.applyStudentSessionState(payload.session || null, {
+        skipAutoSelect: true,
+        skipClassRefresh: true,
+      });
     } catch (error) {
       this.studentSessionState = null;
       this.studentStartBtn.disabled = true;
       this.toggleStudentCameraCard(false);
       this.showStudentSessionAlert(error.message, true);
       this.setStudentSessionHint("Không thể kiểm tra phiên. Thử lại sau.");
+    }
+  }
+
+  applyStudentSessionState(sessionPayload, options = {}) {
+    if (!this.studentPortalEl || !this.studentClassSelectEl) {
+      return;
+    }
+    const { skipAutoSelect = false, skipClassRefresh = false } = options;
+    const previousSessionId = this.studentSessionState
+      ? this.studentSessionState.id || null
+      : null;
+    const status = (sessionPayload?.status || "").toLowerCase();
+    const isOpen = status === "open";
+    const sessionClassId =
+      isOpen && sessionPayload?.credit_class_id
+        ? Number(sessionPayload.credit_class_id)
+        : null;
+
+    if (
+      !skipAutoSelect &&
+      isOpen &&
+      sessionClassId &&
+      !this.studentClassSelectEl.value
+    ) {
+      const matchingOption = Array.from(this.studentClassSelectEl.options).find(
+        (option) => option.value && Number(option.value) === sessionClassId
+      );
+      if (matchingOption) {
+        this.studentClassSelectEl.value = matchingOption.value;
+      }
+    }
+
+    this.studentSelectedClassId = this.studentClassSelectEl.value;
+    const selectedClassId = Number(this.studentClassSelectEl.value);
+
+    if (!selectedClassId) {
+      this.studentSessionState = null;
+      if (this.studentStartBtn) {
+        this.studentStartBtn.disabled = true;
+      }
+      this.toggleStudentCameraCard(false);
+      if (isOpen) {
+        this.showStudentSessionAlert(
+          "Giảng viên đã mở phiên. Hãy chọn lớp tín chỉ phù hợp để tham gia.",
+          false
+        );
+        this.setStudentSessionHint("Chọn lớp có phiên đang mở để bật camera.");
+      } else {
+        this.showStudentSessionAlert(
+          "Vui lòng chọn lớp tín chỉ để kiểm tra phiên điểm danh.",
+          false
+        );
+        this.setStudentSessionHint(
+          "Chọn lớp và nhấn Bắt đầu khi phiên được mở."
+        );
+      }
+    } else if (isOpen && sessionClassId === selectedClassId) {
+      this.studentSessionState = sessionPayload;
+      if (this.studentStartBtn) {
+        this.studentStartBtn.disabled = false;
+      }
+      const expiresText = sessionPayload?.expires_at
+        ? this.formatDateTime(sessionPayload.expires_at)
+        : "khi giảng viên đóng phiên";
+      this.showStudentSessionAlert(
+        `Phiên đang mở đến ${expiresText}. Bạn có thể bắt đầu.`,
+        false
+      );
+      this.setStudentSessionHint("Bật camera để điểm danh.");
+    } else {
+      if (this.studentCameraActive) {
+        this.stopStudentCamera(
+          "Phiên điểm danh đã đóng hoặc không thuộc lớp bạn."
+        );
+      } else {
+        this.toggleStudentCameraCard(false);
+      }
+      this.studentSessionState = null;
+      if (this.studentStartBtn) {
+        this.studentStartBtn.disabled = true;
+      }
+      const message = isOpen
+        ? "Phiên hiện tại thuộc lớp tín chỉ khác."
+        : "Lớp này hiện chưa có phiên điểm danh mở.";
+      this.showStudentSessionAlert(message, !isOpen);
+      this.setStudentSessionHint(
+        isOpen
+          ? "Chọn đúng lớp hoặc chờ giảng viên của bạn mở phiên."
+          : "Liên hệ giảng viên để mở phiên cho lớp bạn."
+      );
+    }
+
+    const sessionMatchesOption = sessionClassId
+      ? Array.from(this.studentClassSelectEl.options).some(
+          (option) => option.value && Number(option.value) === sessionClassId
+        )
+      : false;
+
+    let shouldRefreshClasses = false;
+    if (sessionPayload) {
+      shouldRefreshClasses = true;
+      if (isOpen && sessionClassId && !sessionMatchesOption) {
+        this.studentPendingSessionClassId = sessionClassId;
+      }
+    } else if (previousSessionId) {
+      shouldRefreshClasses = true;
+    }
+
+    if (
+      shouldRefreshClasses &&
+      !skipClassRefresh &&
+      this.studentPortalEl.dataset.studentId
+    ) {
+      this.fetchStudentClasses(true);
     }
   }
 
@@ -1244,12 +1773,14 @@ class MainApp {
     if (this.studentStopBtn) {
       this.studentStopBtn.classList.add("d-none");
     }
-    if (this.studentClassSelectEl && this.studentClassSelectEl.value) {
-      this.validateStudentSession(false).catch(() => {});
-    }
     const alertMessage =
       message || "Camera đã tắt. Bạn có thể bắt đầu lại khi cần.";
     this.showStudentSessionAlert(alertMessage, Boolean(message));
+    if (this.studentSessionState) {
+      this.setStudentSessionHint("Bấm Bắt đầu để tiếp tục phiên.");
+    } else {
+      this.setStudentSessionHint("Chọn lớp có phiên đang mở để tiếp tục.");
+    }
     if (this.studentStartBtn && this.studentSessionState) {
       this.studentStartBtn.disabled = false;
     }
@@ -1295,11 +1826,11 @@ class MainApp {
     }
     this.toggleStudentHistoryLoading(true);
     const studentId = this.studentPortalEl.dataset.studentId;
-    const endpoint = `/api/attendance/history/${encodeURIComponent(
-      studentId
-    )}?limit=10${forceReload ? `&t=${Date.now()}` : ""}`;
     try {
-      const data = await this.fetchJson(endpoint);
+      const data = await this.api.getStudentHistory(studentId, {
+        limit: 10,
+        cacheBust: forceReload,
+      });
       this.renderStudentHistory(data.history || []);
     } catch (error) {
       this.renderStudentHistory([]);
@@ -1396,13 +1927,7 @@ class MainApp {
 
   async refreshAttendanceList(triggeredByRealtime = false) {
     try {
-      const response = await fetch(`/api/attendance/today?t=${Date.now()}`, {
-        headers: { "Cache-Control": "no-cache" },
-      });
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.error || "Không thể tải danh sách điểm danh");
-      }
+      const data = await this.api.getTodayAttendance();
 
       this.renderAttendanceTable(data.data || []);
       this.updateSummarySections(data.checked_in || [], data.checked_out || []);
@@ -1516,10 +2041,7 @@ class MainApp {
     }
 
     try {
-      const response = await fetch(`/api/statistics?t=${Date.now()}`, {
-        headers: { "Cache-Control": "no-cache" },
-      });
-      const data = await response.json();
+      const data = await this.api.getStatistics();
       if (totalEl) {
         totalEl.textContent = data.total_students || 0;
       }
@@ -1540,10 +2062,7 @@ class MainApp {
 
   async updateActivePresence() {
     try {
-      const response = await fetch(`/api/presence/active?t=${Date.now()}`, {
-        headers: { "Cache-Control": "no-cache" },
-      });
-      const data = await response.json();
+      const data = await this.api.getActivePresence();
       const activeList = document.getElementById("active-presence-list");
       if (!activeList) {
         return;
@@ -1735,10 +2254,10 @@ class MainApp {
   }
 
   handleSessionEvent(sessionPayload) {
-    if (!this.sessionElements.card) {
-      return;
+    if (this.sessionElements.card) {
+      this.updateSessionUI(sessionPayload);
     }
-    this.updateSessionUI(sessionPayload);
+    this.applyStudentSessionState(sessionPayload || null);
   }
 
   async handleOpenSession() {
@@ -1758,15 +2277,7 @@ class MainApp {
       "Đang mở phiên..."
     );
     try {
-      const response = await fetch("/api/attendance/session/open", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ credit_class_id: classId }),
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.message || "Không thể mở phiên điểm danh");
-      }
+      const payload = await this.api.openSession(classId);
       this.setSessionAlert("Đã mở phiên điểm danh thành công", "success");
       this.handleSessionEvent(payload.session || null);
       this.refreshAttendanceList(true);
@@ -1788,14 +2299,7 @@ class MainApp {
     );
     this.setSessionAlert("");
     try {
-      const response = await fetch("/api/attendance/session/close", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.message || "Không thể đóng phiên");
-      }
+      const payload = await this.api.closeSession();
       this.setSessionAlert("Phiên điểm danh đã được đóng", "info");
       this.handleSessionEvent(payload.session || null);
       this.refreshAttendanceList(true);
@@ -1811,13 +2315,7 @@ class MainApp {
       return;
     }
     try {
-      const response = await fetch(`/api/attendance/session?t=${Date.now()}`, {
-        headers: { "Cache-Control": "no-cache" },
-      });
-      const payload = await response.json();
-      if (!payload.success) {
-        throw new Error(payload.message || "Không thể tải trạng thái phiên");
-      }
+      const payload = await this.api.getSession();
       this.handleSessionEvent(payload.session || null);
     } catch (error) {
       if (!silent) {
@@ -2001,19 +2499,9 @@ class MainApp {
     this.detailModal.show();
 
     try {
-      const response = await fetch(
-        `/api/attendance/history/${encodeURIComponent(
-          studentId
-        )}?t=${Date.now()}`,
-        { headers: { "Cache-Control": "no-cache" } }
-      );
-      if (!response.ok) {
-        throw new Error("Không thể tải lịch sử điểm danh");
-      }
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.error || "Không thể tải lịch sử điểm danh");
-      }
+      const data = await this.api.getStudentHistory(studentId, {
+        cacheBust: true,
+      });
       this.updateDetailHeader(
         data.student_name || fallbackName,
         data.student_id || studentId,

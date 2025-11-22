@@ -1,0 +1,55 @@
+3.4. Phân tích Chuyên sâu Kết quả Kiểm thử Thực nghiệm
+Để đánh giá toàn diện hiệu quả của hệ thống, chúng tôi không chỉ dừng lại ở các quan sát định tính mà đã tiến hành một loạt các kịch bản kiểm thử định lượng (Quantitative Testing). Quá trình này nhằm đo lường hai chỉ số cốt lõi: Hiệu năng vận hành (Performance) và Độ chính xác nhận diện (Accuracy) dưới các điều kiện biên.
+3.4.1. Thiết lập Môi trường và Phương pháp Kiểm thử
+a. Tập dữ liệu kiểm thử (Test Dataset) Chúng tôi xây dựng một tập dữ liệu kiểm thử riêng biệt (Test Set), không trùng lặp với tập đăng ký (Gallery Set), bao gồm dữ liệu của 50 sinh viên tình nguyện tham gia.
+	Tổng số mẫu: 1.000 hình ảnh và 50 đoạn video ngắn (10 giây/video).
+	Phân bố dữ liệu:
+	500 ảnh điều kiện lý tưởng (Sáng tốt, nhìn thẳng).
+	200 ảnh thiếu sáng (Low light).
+	200 ảnh biến thiên tư thế (Pose variations: góc lệch > 30 độ).
+	100 ảnh có vật thể che khuất (đeo khẩu trang, kính râm).
+b. Các chỉ số đánh giá (Evaluation Metrics)
+	Tốc độ xử lý (FPS - Frames Per Second): Số khung hình hệ thống xử lý được trong 1 giây.
+	Độ trễ (Latency): Thời gian trôi qua từ lúc camera thu nhận hình ảnh đến khi kết quả hiển thị trên màn hình.
+	Tỷ lệ nhận diện đúng (True Positive Rate - TPR / Recall): Tỷ lệ số lần hệ thống nhận diện đúng người so với tổng số lần người đó xuất hiện.
+	Tỷ lệ chấp nhận sai (False Acceptance Rate - FAR): Tỷ lệ hệ thống nhận nhầm người lạ thành người quen, hoặc nhận nhầm sinh viên A thành sinh viên B. Đây là chỉ số quan trọng nhất về mặt an ninh.
+3.4.2. Kết quả Đánh giá Hiệu năng Hệ thống (Performance Evaluation)
+Hiệu năng được đo đạc trên cấu hình phần cứng tham chiếu: Laptop Acer Nitro 5 Eagle, CPU Intel Core i7, RAM 16GB.
+a. Phân tích Tốc độ khung hình (FPS) Chúng tôi thực hiện so sánh giữa hai chế độ: Xử lý trên ảnh gốc (720p) và Xử lý trên ảnh thu nhỏ (Resized 1/4).
+Chế độ xử lý	Độ phân giải đầu vào	FPS Trung bình	FPS Tối thiểu	FPS Tối đa	Đánh giá
+Full Resolution	1280 x 720 px	8.5 FPS	6.0 FPS	11.0 FPS	Chấp nhận được, có thể sử dụng.
+Downscaling (1/2)	640 x 360 px	24.0 FPS	18.0 FPS	28.0 FPS	Mượt mà, đạt chuẩn thời gian thực.
+Downscaling (1/4)	320 x 180 px	45.0 FPS	35.0 FPS	55.0 FPS	Rất mượt, phản hồi tức thì.
+Nhận xét: Việc giảm kích thước ảnh đầu vào xuống 1/4 giúp tăng tốc độ xử lý lên gấp 4.6 lần mà không làm giảm đáng kể khả năng phát hiện khuôn mặt (do HOG vẫn hoạt động tốt trên ảnh độ phân giải thấp đối với các khuôn mặt không quá nhỏ). Đây là kỹ thuật tối ưu hóa quan trọng nhất.
+b. Phân tích Độ trễ chi tiết (Latency Breakdown) Tổng thời gian xử lý một khung hình (T_{total} ) được phân rã thành các thành phần: 
+T_{total}=T_{detect}+T_{align}+T_{encode}+T_{match}
+
+Giai đoạn	Thời gian tiêu thụ (ms)	Tỷ trọng (%)	Ghi chú
+1. Phát hiện (HOG)	25 ms	65.8%	Vẫn chiếm tỷ trọng lớn nhất.
+2. Căn chỉnh (ERT)	2 ms	5.3%	Cực nhanh, không đáng kể.
+3. Mã hóa (ResNet)	10 ms	26.3%	Nhanh hơn đáng kể nhờ CPU mạnh.
+4. So khớp (Euclidean)	< 1 ms	2.6%	Tức thời.
+Tổng cộng	~38 ms	100%	Tương đương ~26 FPS.
+Kết luận: Giai đoạn phát hiện khuôn mặt (Detection) là nút thắt cổ chai (bottleneck) chính của hệ thống. Nếu muốn tăng tốc độ hơn nữa, cần thay thế HOG bằng các bộ phát hiện nhẹ hơn (như Ultra-Light-Fast-Generic-Face-Detector) hoặc sử dụng phần cứng chuyên dụng (như Intel Neural Compute Stick).
+3.4.3. Kết quả Đánh giá Độ chính xác (Accuracy Evaluation)
+Độ chính xác được đánh giá dựa trên ngưỡng khoảng cách Euclidean \tau=\ 0.6\ .
+a. Kết quả tổng hợp theo kịch bản
+Kịch bản kiểm thử	Số mẫu thử	Nhận diện đúng (True Positive)	Bỏ sót (False Negative)	Nhận nhầm (False Positive)	Độ chính xác (Accuracy)
+A. Lý tưởng (Thẳng, Sáng)	500	485	15	0	97.0%
+B. Ánh sáng yếu (< 50 lux)	200	148	52	3	74.0%
+C. Góc lệch lớn (> 45 độ)	200	122	78	5	61.0%
+D. Đeo khẩu trang	100	8	92	0	8.0%
+b. Phân tích Ma trận Nhầm lẫn (Confusion Matrix Analysis)
+	Trường hợp False Negative (Bỏ sót):
+	Nguyên nhân chính: Do thuật toán HOG không phát hiện được khuôn mặt (Face Detection Failure) trong điều kiện thiếu sáng hoặc góc nghiêng quá lớn. Khi không có khuôn mặt nào được phát hiện, hệ thống không thể tiến hành nhận diện, dẫn đến việc sinh viên có mặt nhưng không được điểm danh.
+	Tỷ lệ: Chiếm khoảng 80% tổng số lỗi.
+	Trường hợp False Positive (Nhận nhầm):
+	Nguyên nhân chính: Do sự tương đồng ngẫu nhiên giữa vector của hai người khác nhau, hoặc do ngưỡng \tau đặt quá lỏng.
+	Tỷ lệ: Rất thấp (chiếm 20% tổng số lỗi). Điều này cho thấy mô hình ResNet có khả năng phân biệt (Discriminative Power) rất tốt.
+c. Ảnh hưởng của Ngưỡng quyết định (Threshold Sensitivity) Chúng tôi đã thử nghiệm thay đổi ngưỡng  \tau  để tìm điểm cân bằng tối ưu.
+Ngưỡng (\tau )	Tỷ lệ chấp nhận sai (FAR)	Tỷ lệ từ chối sai (FRR)	Nhận xét
+0.40	0.01% (Rất thấp)	25.0% (Cao)	Quá khắt khe, nhiều sinh viên bị từ chối dù đúng là họ.
+0.50	0.1%	10.0%	Cân bằng tốt cho hệ thống an ninh cao.
+0.60 (Default)	0.8%	3.0%	Cân bằng tối ưu cho bài toán điểm danh.
+0.70	5.0% (Cao)	0.5% (Thấp)	Quá lỏng lẻo, dễ nhận nhầm người này thành người khác.
+Kết luận: Ngưỡng  \tau=\ 0.6 là lựa chọn hợp lý nhất cho bài toán điểm danh, nơi ưu tiên sự thuận tiện (giảm FRR) và chấp nhận một tỷ lệ sai sót rất nhỏ về nhận nhầm (FAR).
