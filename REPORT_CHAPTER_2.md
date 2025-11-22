@@ -208,9 +208,6 @@ graph TB
     *   So sánh với kho `Face Embeddings`.
 5.  **Ghi nhận Điểm danh:**
     *   Nếu nhận diện thành công -> Ghi vào `Lịch sử Điểm danh`.
-    *   Cập nhật trạng thái hiển thị lên màn hình.
-
-
 ## 2.4. Mô hình Use Case
 
 ### 2.4.1. Danh sách tác nhân (Actors)
@@ -237,6 +234,9 @@ usecaseDiagram
         usecase "Điểm danh (Real-time)" as UC5
         usecase "Xem Báo cáo" as UC6
         usecase "Cấu hình Hệ thống" as UC7
+        usecase "Xuất Báo cáo (Excel)" as UC8
+        usecase "Quản lý Người dùng" as UC9
+        usecase "Xem Lịch sử Cá nhân" as UC10
     }
 
     Admin --> UC1
@@ -245,13 +245,16 @@ usecaseDiagram
     Admin --> UC4
     Admin --> UC6
     Admin --> UC7
+    Admin --> UC8
+    Admin --> UC9
     
     Teacher --> UC1
     Teacher --> UC6
     Teacher --> UC3 : "Xem danh sách lớp"
+    Teacher --> UC8
     
     Student --> UC4 : "Cung cấp ảnh mẫu"
-    Student --> UC6 : "Xem lịch sử cá nhân"
+    Student --> UC10
     
     SystemAI --> UC5
 ```
@@ -277,6 +280,16 @@ usecaseDiagram
     3.  Admin chọn "Thêm mới" hoặc chọn một sinh viên để "Sửa/Xóa".
     4.  Nhập/Cập nhật các trường: Mã SV, Họ tên, Lớp, Email.
     5.  Hệ thống lưu thông tin vào CSDL và thông báo kết quả.
+
+#### UC3: Quản lý Lớp học (Manage Classes)
+*   **Tác nhân:** Admin, Teacher.
+*   **Mục đích:** Tổ chức sinh viên vào các lớp học cụ thể.
+*   **Luồng sự kiện chính:**
+    1.  Admin chọn menu "Quản lý Lớp học".
+    2.  Hệ thống hiển thị danh sách các lớp.
+    3.  Admin chọn "Tạo lớp mới" và nhập thông tin (Tên lớp, Mã lớp, Niên khóa).
+    4.  Hệ thống tạo lớp mới trong CSDL.
+    5.  Giáo viên có thể xem danh sách lớp mình phụ trách.
 
 #### UC4: Đăng ký Khuôn mặt (Register Face)
 *   **Tác nhân:** Admin, Student (nếu được cấp quyền tự đăng ký).
@@ -306,8 +319,42 @@ usecaseDiagram
     1.  Người dùng chọn menu "Báo cáo".
     2.  Chọn bộ lọc: Lớp học, Khoảng thời gian (Ngày/Tuần/Tháng).
     3.  Hệ thống truy vấn dữ liệu và hiển thị bảng thống kê.
-    4.  Người dùng có thể chọn "Xuất Excel" để tải file về máy.
 
+#### UC7: Cấu hình Hệ thống (System Configuration)
+*   **Tác nhân:** Admin.
+*   **Mục đích:** Điều chỉnh các tham số hoạt động của hệ thống.
+*   **Luồng sự kiện chính:**
+    1.  Admin truy cập trang "Cài đặt".
+    2.  Thay đổi các thông số: Ngưỡng nhận diện (Threshold), Camera Index, Thời gian timeout.
+    3.  Lưu cấu hình.
+    4.  Hệ thống áp dụng cấu hình mới ngay lập tức hoặc sau khi khởi động lại.
+
+#### UC8: Xuất Báo cáo (Export Reports)
+*   **Tác nhân:** Admin, Teacher.
+*   **Mục đích:** Lưu trữ dữ liệu điểm danh dưới dạng file Excel/PDF.
+*   **Luồng sự kiện chính:**
+    1.  Tại màn hình xem báo cáo, người dùng nhấn nút "Xuất Excel".
+    2.  Hệ thống tổng hợp dữ liệu hiện tại.
+    3.  Hệ thống tạo file `.xlsx` chứa danh sách điểm danh chi tiết.
+    4.  Trình duyệt tự động tải file về máy người dùng.
+
+#### UC9: Quản lý Người dùng (Manage Users)
+*   **Tác nhân:** Admin.
+*   **Mục đích:** Quản lý tài khoản truy cập hệ thống (Admin, Teacher).
+*   **Luồng sự kiện chính:**
+    1.  Admin vào menu "Quản lý User".
+    2.  Thêm tài khoản mới (Username, Password, Role).
+    3.  Reset mật khẩu cho tài khoản quên mật khẩu.
+    4.  Khóa/Mở khóa tài khoản.
+
+#### UC10: Xem Lịch sử Cá nhân (View Personal History)
+*   **Tác nhân:** Student.
+*   **Mục đích:** Sinh viên tự theo dõi tình hình đi học của mình.
+*   **Luồng sự kiện chính:**
+    1.  Sinh viên đăng nhập vào hệ thống.
+    2.  Chọn menu "Lịch sử điểm danh".
+    3.  Hệ thống hiển thị danh sách các ngày đã điểm danh, thời gian check-in/check-out.
+    4.  Hiển thị tỷ lệ chuyên cần cá nhân.
 
 ## 2.5. Biểu đồ UML
 
