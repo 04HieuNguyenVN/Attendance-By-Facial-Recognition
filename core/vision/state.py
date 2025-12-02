@@ -1,4 +1,4 @@
-"""State wrapper for camera lifecycle and frame acquisition."""
+"""Wrapper trạng thái cho vòng đời camera và thu thập khung hình."""
 from __future__ import annotations
 
 import logging
@@ -20,7 +20,7 @@ class VisionStateConfig:
 
 
 class VisionPipelineState:
-    """Manages CameraManager + VisionPipeline with thread-safe helpers."""
+    """Quản lý CameraManager + VisionPipeline với các helper an toàn luồng."""
 
     def __init__(
         self,
@@ -36,8 +36,7 @@ class VisionPipelineState:
         self._enabled = True
 
     # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
+    # Các helper nội bộ
     def _get_or_create_manager(self) -> CameraManager:
         if self._camera_manager is None:
             self._camera_manager = CameraManager(
@@ -61,13 +60,12 @@ class VisionPipelineState:
             try:
                 manager.stop()
             except Exception as exc:  # pragma: no cover - defensive
-                self._logger.debug("[Camera] stop() failed: %s", exc)
+                self._logger.debug("[Camera] stop() thất bại: %s", exc)
         self._pipeline = None
         self._camera_manager = None
 
     # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
+    # API công khai
     def set_enabled(self, enabled: bool) -> None:
         with self._lock:
             self._enabled = bool(enabled)
@@ -86,7 +84,7 @@ class VisionPipelineState:
     def next_frame(self) -> VisionFrame:
         pipeline = self.ensure_ready()
         if pipeline is None:
-            raise CameraError("Camera disabled")
+            raise CameraError("Camera bị vô hiệu hóa")
         return pipeline.next_frame()
 
     def stop(self) -> None:

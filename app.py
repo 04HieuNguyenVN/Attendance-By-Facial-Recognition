@@ -1,10 +1,10 @@
-# Set UTF-8 encoding for console output
+# Thiết lập mã hóa UTF-8 cho đầu ra console
 import sys
 import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
-# Flask imports
+# Các import của Flask
 from flask import (
     Flask,
     render_template,
@@ -20,22 +20,24 @@ from flask import (
     stream_with_context,
 )
 
-# Standard library imports
+# Các import thư viện chuẩn
 import os
 import csv
 import time
 import random
 import base64
+import re
+import shutil
 from pathlib import Path
 from datetime import datetime, date, timedelta
 import threading
 import hashlib
 from functools import wraps
 from typing import Any, Dict, Optional
-# Note: use threading.Thread / threading.Lock via the threading module to avoid
-# duplicate unused names in the module namespace.
+# Lưu ý: sử dụng threading.Thread / threading.Lock qua module threading để tránh
+# trùng lặp tên không sử dụng trong namespace của module.
 
-# Third-party imports
+# Các import bên thứ ba
 import cv2
 import numpy as np
 from werkzeug.utils import secure_filename
@@ -46,7 +48,7 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
 
-# Local imports
+# Các import nội bộ
 from database import db
 from logging_config import setup_logging
 from core.inference.engine import (
@@ -58,7 +60,7 @@ from core.inference.engine import (
 from core.vision.camera_manager import CameraError
 from core.vision.state import VisionPipelineState, VisionStateConfig
 
-# Try to load dotenv, but don't fail if not installed
+# Cố gắng tải dotenv, nhưng không báo lỗi nếu chưa cài đặt
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -75,11 +77,40 @@ ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png'}
 SUPPORTED_IMAGE_FORMATS = {'JPEG', 'PNG', 'WEBP'}
 MIN_FILE_SIZE = 1024  # 1 KB - tối thiểu
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+MIN_FACE_SAMPLES_PER_STUDENT = max(3, int(os.getenv('MIN_FACE_SAMPLES', '3')))
+MAX_FACE_SAMPLES_PER_REQUEST = max(
+    MIN_FACE_SAMPLES_PER_STUDENT,
+    int(os.getenv('MAX_FACE_SAMPLES', '12')),
+)
 
-# Setup logging
+# Thiết lập logging
 setup_logging(app)
 
-# Cleanup corrupted legacy class records if present
+app.logger.info(f"[STARTUP] Working directory: {os.getcwd()}")
+app.logger.info(f"[STARTUP] Database path: {os.path.abspath('attendance_system.db')}")
+
+# Load attendance cache từ DB để đồng bộ trạng thái
+try:
+    attendance_records = db.get_today_attendance()
+    for record in attendance_records:
+        student_id = record['student_id'].strip().upper()
+        check_out_time = record.get('check_out_time')
+        if check_out_time:
+            today_checked_out.add(student_id)
+        else:
+            today_checked_in.add(student_id)
+        # Populate student names cache
+        today_student_names[student_id] = {
+            'name': record.get('student_name') or record.get('full_name') or student_id,
+            'class_name': record.get('class_name'),
+            'class_type': 'credit' if record.get('credit_class_id') else 'administrative',
+            'credit_class_id': record.get('credit_class_id')
+        }
+    app.logger.info(f"[STARTUP] Loaded {len(attendance_records)} attendance records into cache")
+except Exception as e:
+    app.logger.warning(f"[STARTUP] Failed to load attendance cache: {e}")
+
+# Dọn dẹp các bản ghi lớp học cũ bị lỗi nếu có
 LEGACY_CLASS_NAMES = [
     'Công nghệ thông tin 01',
     'Công nghệ thông tin 01',
@@ -93,7 +124,7 @@ for legacy_name in LEGACY_CLASS_NAMES:
 DEMO_MODE = os.getenv('DEMO_MODE', '0') == '1'
 USE_FACENET = os.getenv('USE_FACENET', '1') == '1'  # Sử dụng FaceNet thay vì face_recognition
 
-# Import advanced face recognition services (FaceNet-based)
+# Import các dịch vụ nhận diện khuôn mặt nâng cao (dựa trên FaceNet)
 face_service = None
 antispoof_service = None
 training_service = None
@@ -121,7 +152,7 @@ if USE_FACENET and not DEMO_MODE:
         app.logger.info("Falling back to legacy face_recognition library")
         USE_FACENET = False
 
-# Try to import DeepFace and DeepFace DB helper
+# Cố gắng import DeepFace và DeepFace DB helper
 DEEPFACE_AVAILABLE = False
 try:
     from deepface import DeepFace
@@ -131,7 +162,7 @@ try:
 except ImportError:
     app.logger.warning("DeepFace not available, will try face_recognition as fallback")
 
-# Try to import YOLOv8 for face detection (optional but recommended)
+# Cố gắng import YOLOv8 để phát hiện khuôn mặt (tùy chọn nhưng khuyến nghị)
 YOLO_AVAILABLE = False
 yolo_face_model = None
 try:
@@ -161,7 +192,7 @@ except ImportError:
 except Exception as e:
     app.logger.warning(f"Could not load YOLOv8 model: {e}")
 
-# Fallback: Import legacy face_recognition library
+# Dự phòng: Import thư viện face_recognition cũ
 if not USE_FACENET and not DEEPFACE_AVAILABLE:
     try:
         import face_recognition
@@ -177,7 +208,7 @@ if not USE_FACENET and not DEEPFACE_AVAILABLE:
         else:
             print("Demo mode: face_recognition not available, using simulation mode")
 else:
-    # If we have DeepFace or FaceNet, we can do face recognition
+    # Nếu chúng ta có DeepFace hoặc FaceNet, chúng ta có thể thực hiện nhận diện khuôn mặt
     if not FACE_RECOGNITION_AVAILABLE:
         FACE_RECOGNITION_AVAILABLE = DEEPFACE_AVAILABLE or USE_FACENET
 
@@ -193,7 +224,7 @@ FACE_RECOGNITION_THRESHOLD = float(os.getenv('FACE_RECOGNITION_THRESHOLD', '0.6'
 FACE_DISTANCE_THRESHOLD = float(os.getenv('FACE_DISTANCE_THRESHOLD', '0.45'))  # Khoảng cách tối đa (càng nhỏ càng giống)
 # Ngưỡng cho DeepFace cosine similarity (similarity >= threshold được chấp nhận)
 DEEPFACE_SIMILARITY_THRESHOLD = float(os.getenv('DEEPFACE_SIMILARITY_THRESHOLD', '0.6'))  # Cosine similarity tối thiểu
-# Temporal + pose-based confirmation (require looking straight for N seconds)
+# Xác nhận dựa trên thời gian + tư thế (yêu cầu nhìn thẳng trong N giây)
 LOOK_STRAIGHT_SECONDS = float(os.getenv('LOOK_STRAIGHT_SECONDS', '10'))  # seconds
 FRONTAL_YAW_RATIO_THRESHOLD = float(os.getenv('FRONTAL_YAW_RATIO_THRESHOLD', '0.15'))
 FRONTAL_ROLL_DEG_THRESHOLD = float(os.getenv('FRONTAL_ROLL_DEG_THRESHOLD', '15'))
@@ -205,12 +236,192 @@ SESSION_DURATION_MINUTES = max(1, int(os.getenv('SESSION_DURATION_MINUTES', '15'
 # Đường dẫn thư mục dữ liệu
 DATA_DIR = Path('data')
 
+
+def _normalize_student_dir_name(student_id: Optional[str]) -> str:
+    """Sinh tên thư mục an toàn cho sinh viên, ưu tiên dùng mã số."""
+    if not student_id:
+        return 'student'
+    normalized = secure_filename(str(student_id).strip()) or 'student'
+    return normalized.lower()
+
+
+def get_student_data_dir(student_id: Optional[str]) -> Path:
+    """Trả về thư mục chứa ảnh của sinh viên trong DATA_DIR."""
+    return DATA_DIR / _normalize_student_dir_name(student_id)
+
+
+def ensure_student_data_dir(student_id: Optional[str]) -> Path:
+    """Đảm bảo thư mục lưu ảnh của sinh viên tồn tại."""
+    target_dir = get_student_data_dir(student_id)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    return target_dir
+
+
+def build_student_image_path(student_id: Optional[str], filename: str) -> Path:
+    """Ghép đường dẫn file ảnh trong thư mục của sinh viên."""
+    student_dir = ensure_student_data_dir(student_id)
+    return student_dir / filename
+
+
+RESERVED_DATA_SUBDIRS = {'training_samples', 'models', 'external_assets'}
+
+
+def iter_student_face_image_files():
+    """Duyệt qua tất cả ảnh mẫu sinh viên (bao gồm thư mục con)."""
+    if not DATA_DIR.exists():
+        return []
+
+    allowed_suffixes = {f'.{ext.lower()}' for ext in ALLOWED_EXTENSIONS}
+    files = []
+
+    for entry in DATA_DIR.iterdir():
+        if entry.is_file() and entry.suffix.lower() in allowed_suffixes:
+            files.append(entry)
+            continue
+
+        if not entry.is_dir() or entry.name in RESERVED_DATA_SUBDIRS:
+            continue
+
+        for sub_path in entry.rglob('*'):
+            if sub_path.is_file() and sub_path.suffix.lower() in allowed_suffixes:
+                files.append(sub_path)
+
+    return files
+
+
+def _resolve_existing_image_path(path_str: Optional[str]) -> Optional[Path]:
+    if not path_str:
+        return None
+
+    candidates = []
+    raw_path = Path(path_str)
+    candidates.append(raw_path)
+    candidates.append(Path.cwd() / raw_path)
+
+    for candidate in candidates:
+        try:
+            if candidate.exists():
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
+def _move_image_into_student_dir(path_str: Optional[str], student_id: Optional[str]) -> Optional[str]:
+    if not student_id:
+        return None
+    source_path = _resolve_existing_image_path(path_str)
+    if source_path is None:
+        return None
+
+    target_dir = ensure_student_data_dir(student_id)
+    try:
+        relative_inside = source_path.resolve().relative_to(target_dir.resolve())
+        normalized_path = target_dir / relative_inside
+        return str(normalized_path)
+    except Exception:
+        pass
+
+    target_path = target_dir / source_path.name
+    counter = 1
+    while target_path.exists():
+        target_path = target_dir / f"{source_path.stem}_{counter:02d}{source_path.suffix}"
+        counter += 1
+
+    try:
+        shutil.move(str(source_path), str(target_path))
+    except Exception as exc:
+        app.logger.warning("[DataReorg] Không thể di chuyển %s -> %s: %s", source_path, target_path, exc)
+        return None
+
+    return str(target_path)
+
+
+def _infer_student_id_from_filename(filename: str) -> Optional[str]:
+    if not filename:
+        return None
+    match = re.match(r'^([A-Za-z0-9]+)', filename)
+    if match:
+        return match.group(1)
+    return None
+
+
+def organize_student_data_directories():
+    if not DATA_DIR.exists():
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    try:
+        students = db.get_all_students(active_only=False)
+    except Exception as exc:
+        app.logger.warning("[DataReorg] Không thể tải danh sách sinh viên: %s", exc)
+        return
+
+    moved_samples = 0
+    updated_primary = 0
+
+    for student in students:
+        student_data = student if isinstance(student, dict) else dict(student)
+        student_id = student_data.get('student_id')
+        if not student_id:
+            continue
+
+        ensure_student_data_dir(student_id)
+
+        primary_path = student_data.get('face_image_path')
+        new_primary = _move_image_into_student_dir(primary_path, student_id)
+        if new_primary and new_primary != primary_path:
+            try:
+                db.update_student(student_id, face_image_path=new_primary)
+                updated_primary += 1
+            except Exception as exc:
+                app.logger.warning("[DataReorg] Không thể cập nhật avatar của %s: %s", student_id, exc)
+
+        try:
+            samples = db.get_face_samples(student_id)
+        except Exception as exc:
+            app.logger.warning("[DataReorg] Không thể tải ảnh mẫu cho %s: %s", student_id, exc)
+            continue
+
+        for sample in samples:
+            sample_dict = sample if isinstance(sample, dict) else dict(sample)
+            sample_id = sample_dict.get('id')
+            sample_path = sample_dict.get('image_path')
+            new_path = _move_image_into_student_dir(sample_path, student_id)
+            if new_path and new_path != sample_path:
+                if db.update_face_sample_path(sample_id, new_path):
+                    moved_samples += 1
+
+    loose_moves = 0
+    allowed_suffixes = {f'.{ext.lower()}' for ext in ALLOWED_EXTENSIONS}
+    for legacy_file in DATA_DIR.iterdir():
+        if not legacy_file.is_file() or legacy_file.suffix.lower() not in allowed_suffixes:
+            continue
+        if legacy_file.parent != DATA_DIR:
+            continue
+        inferred_id = _infer_student_id_from_filename(legacy_file.stem)
+        if not inferred_id:
+            continue
+        new_path = _move_image_into_student_dir(str(legacy_file), inferred_id)
+        if new_path and new_path != str(legacy_file):
+            loose_moves += 1
+
+    if moved_samples or updated_primary or loose_moves:
+        app.logger.info(
+            "[DataReorg] Hoàn tất: di chuyển %d ảnh mẫu, cập nhật %d ảnh đại diện, sắp xếp %d ảnh lẻ",
+            moved_samples,
+            updated_primary,
+            loose_moves,
+        )
+
+
+organize_student_data_directories()
+
 # Hệ thống camera/vision
 vision_state: Optional[VisionPipelineState] = None
 camera_enabled = True  # Biến để bật/tắt camera
 inference_engine: Optional[InferenceEngine] = None
 
-# Khởi tạo biến global cho face recognition
+# Khởi tạo biến global cho nhận diện khuôn mặt
 known_face_encodings = []
 known_face_names = []
 known_face_ids = []
@@ -241,9 +452,9 @@ last_recognized = {}  # {student_id: datetime}
 last_recognized_lock = threading.Lock()
 RECOGNITION_COOLDOWN = 30  # Giây - thời gian chờ giữa các lần điểm danh
 
-# Server-Sent Events for real-time notifications
+# Server-Sent Events cho thông báo thời gian thực
 import queue
-sse_clients = []  # List of queues for each connected SSE client
+sse_clients = []  # Danh sách các hàng đợi cho mỗi client SSE đã kết nối
 sse_clients_lock = threading.Lock()
 
 
@@ -263,7 +474,7 @@ def parse_datetime_safe(value):
 
 
 def get_request_data():
-    """Union form/JSON payload into a mutable dict."""
+    """Hợp nhất form/JSON payload thành một dict có thể thay đổi."""
     if request.is_json:
         return request.get_json() or {}
     if request.form:
@@ -272,7 +483,7 @@ def get_request_data():
 
 
 def parse_bool(value, default=None):
-    """Convert string/int/bool inputs to boolean values."""
+    """Chuyển đổi đầu vào string/int/bool thành giá trị boolean."""
     if value is None:
         return default
     if isinstance(value, bool):
@@ -354,7 +565,10 @@ def resolve_teacher_context(teacher_id=None):
         return None
     role = get_current_role()
     if role == 'teacher':
-        return row_to_dict(db.get_teacher_by_user(user['id']))
+        teacher = db.get_teacher_by_user(user['id'])
+        if not teacher:
+            teacher = db.ensure_teacher_profile(user)
+        return row_to_dict(teacher)
     if role == 'admin' and teacher_id:
         return row_to_dict(db.get_teacher(teacher_id))
     return None
@@ -569,7 +783,7 @@ def load_logged_in_user():
 
 @app.context_processor
 def inject_user_context():
-    """Expose current user/role to all templates."""
+    """Cung cấp user/role hiện tại cho tất cả các template."""
     user = getattr(g, 'user', None)
     role = user.get('role') if isinstance(user, dict) else None
     return {
@@ -579,7 +793,7 @@ def inject_user_context():
 
 
 def safe_delete_file(path):
-    """Attempt to delete a file without raising if it fails."""
+    """Cố gắng xóa một file mà không báo lỗi nếu thất bại."""
     if not path:
         return
     try:
@@ -588,8 +802,15 @@ def safe_delete_file(path):
         app.logger.debug("Could not remove file %s", path)
 
 
-def save_uploaded_face_image(file_storage, student_id, full_name):
-    """Persist an uploaded face image after validation."""
+def _generate_face_image_filename(student_id, full_name, *, suffix=None, extension='jpg', timestamp=None):
+    safe_base = secure_filename(f"{student_id}_{full_name}".strip()) or secure_filename(student_id) or 'student'
+    timestamp = timestamp or datetime.now().strftime('%Y%m%d%H%M%S')
+    suffix_part = f"_{suffix}" if suffix is not None else ''
+    return f"{safe_base}_{timestamp}{suffix_part}.{extension}"
+
+
+def save_uploaded_face_image(file_storage, student_id, full_name, *, suffix=None, timestamp=None):
+    """Lưu ảnh khuôn mặt đã tải lên sau khi xác thực."""
     if not file_storage or not file_storage.filename:
         return None
 
@@ -598,11 +819,14 @@ def save_uploaded_face_image(file_storage, student_id, full_name):
     if ext not in ALLOWED_EXTENSIONS:
         raise ValueError(f"Định dạng file không hợp lệ. Chỉ cho phép: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
 
-    safe_base = secure_filename(f"{student_id}_{full_name}".strip()) or secure_filename(student_id) or 'student'
-    timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-    filename = f"{safe_base}_{timestamp}.{ext}"
-    DATA_DIR.mkdir(exist_ok=True)
-    file_path = DATA_DIR / filename
+    filename = _generate_face_image_filename(
+        student_id,
+        full_name,
+        suffix=suffix,
+        extension=ext,
+        timestamp=timestamp,
+    )
+    file_path = build_student_image_path(student_id, filename)
     file_storage.save(str(file_path))
 
     success, error_msg, _ = validate_image_file(str(file_path), is_base64=False)
@@ -613,8 +837,59 @@ def save_uploaded_face_image(file_storage, student_id, full_name):
     return str(file_path)
 
 
+def save_base64_face_image(image_data, student_id, full_name, *, suffix=None, timestamp=None):
+    """Giải mã ảnh base64 và lưu xuống đĩa sau khi xác thực."""
+    if not image_data:
+        raise ValueError('Thiếu dữ liệu ảnh')
+
+    if ',' in image_data:
+        image_data = image_data.split(',')[1]
+    try:
+        img_bytes = base64.b64decode(image_data)
+    except Exception as exc:
+        raise ValueError('Ảnh không hợp lệ: Không thể giải mã dữ liệu base64') from exc
+
+    filename = _generate_face_image_filename(
+        student_id,
+        full_name,
+        suffix=suffix,
+        extension='jpg',
+        timestamp=timestamp,
+    )
+    file_path = build_student_image_path(student_id, filename)
+    with open(file_path, 'wb') as fp:
+        fp.write(img_bytes)
+
+    success, error_msg, _ = validate_image_file(str(file_path), is_base64=False)
+    if not success:
+        safe_delete_file(str(file_path))
+        raise ValueError(f"Ảnh không hợp lệ: {error_msg}")
+
+    return str(file_path)
+
+
+def extract_face_encoding(image_path):
+    """Tạo face encoding từ file ảnh đã lưu (trả về bytes hoặc None nếu thất bại)."""
+    if not FACE_RECOGNITION_AVAILABLE or not image_path:
+        return None
+    try:
+        if not os.path.exists(image_path):
+            return None
+        image = face_recognition.load_image_file(image_path)
+        locations = face_recognition.face_locations(image)
+        if not locations:
+            return None
+        encodings = face_recognition.face_encodings(image, known_face_locations=locations, num_jitters=1)
+        if not encodings:
+            return None
+        return encodings[0].tobytes()
+    except Exception as exc:
+        app.logger.warning("Không thể tạo face encoding từ %s: %s", image_path, exc)
+        return None
+
+
 def serialize_student_record(student_row, class_map=None):
-    """Convert a sqlite3.Row student record to a serializable dict."""
+    """Chuyển đổi bản ghi sinh viên sqlite3.Row thành dict có thể serialize."""
     if not student_row:
         return None
 
@@ -642,6 +917,38 @@ def serialize_student_record(student_row, class_map=None):
         'created_at': student.get('created_at'),
         'updated_at': student.get('updated_at'),
     }
+
+
+def serialize_credit_class_record(credit_row):
+    """Normalize bản ghi lớp tín chỉ, bổ sung thông tin giảng viên."""
+    if not credit_row:
+        return None
+
+    payload = dict(credit_row)
+    if not payload.get('teacher_name') and payload.get('teacher_id'):
+        teacher = db.get_teacher(payload['teacher_id'])
+        if teacher:
+            payload['teacher_name'] = teacher.get('full_name') or teacher.get('teacher_code')
+            payload['teacher_code'] = teacher.get('teacher_code')
+    return payload
+
+
+def serialize_teacher_record(teacher_row):
+    """Chuẩn hóa bản ghi giảng viên, kèm thông tin tài khoản người dùng."""
+    if not teacher_row:
+        return None
+
+    teacher = dict(teacher_row)
+    teacher['is_active'] = bool(teacher.get('is_active', 1))
+    user_id = teacher.get('user_id')
+    if user_id:
+        user = db.get_user_by_id(user_id)
+        if user:
+            teacher['username'] = user.get('username')
+            teacher['user_email'] = user.get('email')
+            teacher['user_is_active'] = bool(user.get('is_active', 1))
+            teacher['user_last_login'] = user.get('last_login')
+    return teacher
 
 def get_or_create_vision_state() -> VisionPipelineState:
     global vision_state
@@ -737,7 +1044,7 @@ configure_inference_engine()
 # ============================================================================
 
 def load_known_faces(force_reload: bool = True):
-    """Load known faces, ưu tiên inference engine nếu khả dụng."""
+    """Tải các khuôn mặt đã biết, ưu tiên inference engine nếu khả dụng."""
     global known_face_embeddings, known_face_names, known_face_ids
 
     app.logger.info(f"[LoadFaces] 🔄 Khởi động lại dữ liệu khuôn mặt từ {DATA_DIR}...")
@@ -790,24 +1097,35 @@ def load_known_faces(force_reload: bool = True):
     db_labels = []
     processed_count = 0
     failed_count = 0
-    image_files = list(DATA_DIR.glob('*.jpg')) + list(DATA_DIR.glob('*.jpeg')) + list(DATA_DIR.glob('*.png'))
-    app.logger.info(f"[LoadFaces] 📁 Tìm thấy {len(image_files)} file ảnh")
+    image_files = iter_student_face_image_files()
+    app.logger.info(f"[LoadFaces] 📁 Tìm thấy {len(image_files)} file ảnh (gồm cả thư mục con)")
 
     for img_path in image_files:
         try:
             filename = img_path.stem
             import re
+            student_id = None
+            name = None
+
+            try:
+                relative_parts = img_path.relative_to(DATA_DIR).parts
+            except ValueError:
+                relative_parts = ()
+
+            if len(relative_parts) > 1 and relative_parts[0] not in RESERVED_DATA_SUBDIRS:
+                student_id = relative_parts[0]
+
             match = re.match(r'^(\d+)_([A-Za-z\s]+)', filename)
             if match:
-                student_id = match.group(1)
+                student_id = student_id or match.group(1)
                 name = match.group(2).strip()
             else:
                 parts = filename.split('_')
                 if len(parts) >= 2:
-                    student_id = parts[0]
+                    student_id = student_id or parts[0]
                     name = '_'.join(parts[1:])
                 else:
-                    student_id = filename
+                    student_id = student_id or filename
                     name = filename
 
             app.logger.debug(
@@ -1133,8 +1451,8 @@ def mark_attendance(
     expected_credit_class_id: int = None,
 ) -> bool:
     """Lưu điểm danh vào database với các ràng buộc tùy chọn."""
-    normalized_student_id = (student_id or '').strip()
-    normalized_expected_id = (expected_student_id or '').strip()
+    normalized_student_id = (student_id or '').strip().upper()
+    normalized_expected_id = (expected_student_id or '').strip().upper()
     if normalized_expected_id and normalized_student_id and normalized_student_id != normalized_expected_id:
         app.logger.info(
             "[Attendance] Rejecting check-in: recognized %s but expected %s",
@@ -1172,6 +1490,20 @@ def mark_attendance(
         credit_class_id=credit_class_id,
         session_id=session_id
     )
+    app.logger.info(f"[DEBUG] Mark attendance success: {success}, session_id: {session_id}")
+    
+    # Tự động enroll sinh viên vào lớp tín chỉ nếu chưa enroll và điểm danh thành công
+    if success and credit_class_id:
+        try:
+            # Kiểm tra xem đã enroll chưa
+            student_db_id = db.get_student_id_by_student_id(normalized_student_id)
+            if student_db_id:
+                enrolled = db.check_student_enrolled_in_credit_class(student_db_id, credit_class_id)
+                if not enrolled:
+                    db.enroll_student_in_credit_class(student_db_id, credit_class_id)
+                    app.logger.info(f"[Attendance] Auto-enrolled {normalized_student_id} into credit class {credit_class_id}")
+        except Exception as e:
+            app.logger.warning(f"[Attendance] Failed to auto-enroll {normalized_student_id}: {e}")
     
     if success:
         session_payload = serialize_session_payload(session_ctx)
@@ -1232,7 +1564,8 @@ def mark_student_checkout(
     expected_credit_class_id: int = None,
 ) -> bool:
     """Đánh dấu checkout cho sinh viên với ràng buộc khuôn mặt/sessions tùy chọn."""
-    normalized_student_id = (student_id or '').strip()
+    print(f"[DEBUG] mark_student_checkout called for {student_id}, expected_credit_class_id={expected_credit_class_id}")
+    normalized_student_id = (student_id or '').strip().upper()
     normalized_expected_id = (expected_student_id or '').strip()
     if normalized_expected_id and normalized_student_id and normalized_student_id != normalized_expected_id:
         app.logger.info(
@@ -1244,6 +1577,7 @@ def mark_student_checkout(
     with today_recorded_lock:
         already_checked_in = normalized_student_id in today_checked_in
         already_checked_out = normalized_student_id in today_checked_out
+    print(f"[DEBUG] Checkout check: checked_in={already_checked_in}, checked_out={already_checked_out}")
     
     if not already_checked_in or already_checked_out:
         return False
@@ -1376,13 +1710,13 @@ def broadcast_sse_event(event_data):
                 pass
 
 
-# --- External attendance viewer (safe integration) ----------------------
+# --- Trình xem điểm danh bên ngoài (tích hợp an toàn) ----------------------
 @app.route('/external-attendance', methods=['GET'])
 def external_attendance():
-    """Render a read-only view of attendance CSVs from the attached project.
-    This does NOT modify any data in the main project; it only reads CSV files
-    from `external_projects/Cong-Nghe-Xu-Ly-Anh/attendance_logs` and renders
-    them using `templates/external_index.html`.
+    """Hiển thị chế độ xem chỉ đọc của các tệp CSV điểm danh từ dự án đính kèm.
+    Điều này KHÔNG sửa đổi bất kỳ dữ liệu nào trong dự án chính; nó chỉ đọc các tệp CSV
+    từ `external_projects/Cong-Nghe-Xu-Ly-Anh/attendance_logs` và hiển thị chúng
+    bằng `templates/external_index.html`.
     """
     all_data = []
     headers = ["ID", "Name", "Time", "Status", "SourceFile"]
@@ -1406,7 +1740,7 @@ def external_attendance():
                 except Exception as e:
                     app.logger.warning(f"Không thể đọc file external {filename}: {e}")
 
-    # Local filtering (same behavior as the external project template expects)
+    # Lọc cục bộ (hành vi giống như template dự án bên ngoài mong đợi)
     if search_name:
         all_data = [row for row in all_data if search_name in str(row[1]).lower()]
 
@@ -1447,17 +1781,33 @@ def check_presence_timeout():
             presence_tracking.pop(student_id, None)
 
 # Đọc điểm danh hôm nay từ Database
-def get_today_attendance():
-    """Lấy danh sách điểm danh hôm nay từ database"""
+def get_today_attendance(credit_class_id=None, session_id=None):
+    """Lấy danh sách điểm danh hôm nay từ database với bộ lọc tùy chọn."""
     try:
-        session_row = get_active_attendance_session()
-        session_id = session_row.get('id') if session_row else None
-        credit_class_id = session_row.get('credit_class_id') if session_row else None
+        resolved_class_id = credit_class_id
+        resolved_session_id = session_id
+
+        if session_id:
+            session_row = db.get_session_by_id(session_id)
+            if session_row:
+                resolved_class_id = resolved_class_id or session_row.get('credit_class_id')
+
+        if resolved_class_id and not resolved_session_id:
+            session_row = db.get_active_session_for_class(resolved_class_id)
+            if session_row:
+                resolved_session_id = session_row.get('id')
+
+        if resolved_class_id is None and resolved_session_id is None:
+            session_row = get_active_attendance_session()
+            if session_row:
+                resolved_session_id = session_row.get('id')
+                resolved_class_id = session_row.get('credit_class_id')
+
         attendance_data = db.get_today_attendance(
-            session_id=session_id,
-            credit_class_id=credit_class_id,
+            session_id=resolved_session_id,
+            credit_class_id=resolved_class_id,
         )
-        # Convert SQLite Row objects to dict
+        # Chuyển đổi đối tượng SQLite Row thành dict
         results = []
         now = datetime.now()
 
@@ -1468,13 +1818,13 @@ def get_today_attendance():
 
             check_in = parse_datetime_safe(row['check_in_time'])
             check_out = parse_datetime_safe(row['check_out_time'])
-            credit_class_id = row.get('credit_class_id')
+            row_credit_class_id = row.get('credit_class_id')
             credit_class_name = row.get('credit_class_name')
             credit_class_code = row.get('credit_class_code')
-            class_type = 'credit' if credit_class_id else 'administrative'
+            class_type = 'credit' if row_credit_class_id else 'administrative'
             base_class_name = row.get('class_name')
             class_display = credit_class_name or base_class_name
-            if credit_class_id:
+            if row_credit_class_id:
                 label_parts = [credit_class_name, credit_class_code]
                 class_display = ' · '.join([part for part in label_parts if part]) or class_display
 
@@ -1508,7 +1858,7 @@ def get_today_attendance():
                 'class_name': base_class_name,
                 'class_display': class_display,
                 'class_type': class_type,
-                'credit_class_id': credit_class_id,
+                'credit_class_id': row_credit_class_id,
                 'credit_class_code': credit_class_code,
                 'credit_class_name': credit_class_name,
                 'session_id': row.get('session_id'),
@@ -1690,20 +2040,36 @@ def generate_frames(
                     now = datetime.now()
 
                     if student_id != 'UNKNOWN':
-                        checked_in = student_id in today_checked_in
-                        checked_out = student_id in today_checked_out
+                        recognized_id_norm = (student_id or '').strip().upper()
+                        checked_in = recognized_id_norm in today_checked_in
+                        checked_out = recognized_id_norm in today_checked_out
                         with last_recognized_lock:
                             last_time = last_recognized.get(student_id)
                             cooldown_passed = not last_time or (now - last_time).total_seconds() > RECOGNITION_COOLDOWN
 
                         guard_student_id = enforced_student_id if enforce_student_match else None
                         guard_credit_class = expected_credit_class_id
-                        mismatch = guard_student_id and student_id != guard_student_id
+                        recognized_id_norm = (student_id or '').strip().upper()
+                        guard_id_norm = (
+                            (guard_student_id or '').strip().upper()
+                            if guard_student_id
+                            else None
+                        )
+                        mismatch = guard_id_norm and recognized_id_norm != guard_id_norm
 
                         if mismatch:
                             status = 'mismatch'
+                            app.logger.warning(
+                                "[Guard] Student mismatch: recognized=%s (raw=%s) expected=%s action=%s class=%s",
+                                recognized_id_norm or 'UNKNOWN',
+                                student_id or 'UNKNOWN',
+                                guard_id_norm,
+                                requested_action,
+                                guard_credit_class,
+                            )
                         elif requested_action == 'checkout':
-                            if checked_in and not checked_out and cooldown_passed:
+                            print(f"[DEBUG] Checkout attempt: checked_in={checked_in}, checked_out={checked_out}, cooldown_passed={cooldown_passed}")
+                            if checked_in and not checked_out:
                                 if mark_student_checkout(
                                     student_id,
                                     student_name=name,
@@ -1725,6 +2091,7 @@ def generate_frames(
                                 status = 'cooldown'
                         else:
                             if not checked_in and cooldown_passed:
+                                print(f"[DEBUG] Attempting mark_attendance for {student_id} ({name})")
                                 try:
                                     success = mark_attendance(
                                         name,
@@ -1733,6 +2100,7 @@ def generate_frames(
                                         expected_student_id=guard_student_id,
                                         expected_credit_class_id=guard_credit_class,
                                     )
+                                    print(f"[DEBUG] Mark attendance result: {success}")
                                     if success:
                                         status = 'checked_in'
                                         with last_recognized_lock:
@@ -1848,7 +2216,7 @@ def generate_frames(
         else:
             face_data = []
         
-        # Draw bounding boxes và labels (chỉ cho demo mode)
+        # Vẽ bounding boxes và labels (chỉ cho demo mode)
         for face_info in face_data:
             left, top, right, bottom = face_info['bbox']
             name = face_info.get('name', 'Unknown')
@@ -1889,10 +2257,10 @@ def generate_frames(
                 color = (0, 165, 255)  # Màu cam cho nhận diện chưa chắc chắn
                 thickness = 2
             
-            # Draw bounding box with thicker lines
+            # Vẽ bounding box với nét đậm hơn
             cv2.rectangle(frame, (left, top), (right, bottom), color, thickness)
             
-            # Draw label with name and confidence
+            # Vẽ nhãn với tên và độ tin cậy
             if status == 'already_marked':
                 label = f"{name} - Da diem danh"
             elif status == 'confirming':
@@ -1920,14 +2288,14 @@ def generate_frames(
             label_x = left
             label_y = top - 10 if top > 30 else bottom + 30
             
-            # Draw label background (semi-transparent effect with padding)
+            # Vẽ nền nhãn (hiệu ứng bán trong suốt với padding)
             padding = 5
             cv2.rectangle(frame, 
                          (label_x - padding, label_y - label_size[1] - padding), 
                          (label_x + label_size[0] + padding, label_y + padding), 
                          color, -1)
             
-            # Draw label text in black for better contrast
+            # Vẽ chữ nhãn màu đen để tương phản tốt hơn
             cv2.putText(frame, label, (label_x, label_y), 
                        cv2.FONT_HERSHEY_DUPLEX, 0.6, (0, 0, 0), 1, cv2.LINE_AA)
         
@@ -1945,7 +2313,7 @@ def generate_frames(
             except Exception as e:
                 app.logger.error(f"Loi kiem tra presence timeout: {e}")
 
-        # Encode frame with reduced quality to lower CPU and bandwidth
+        # Mã hóa frame với chất lượng giảm để giảm tải CPU và băng thông
         ret2, buf = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
         if not ret2:
             continue
@@ -2124,7 +2492,7 @@ def status():
         'known_faces_count': len(known_face_names) if 'known_face_names' in globals() else 0
     })
 
-# Quick face registration API
+# API đăng ký nhanh khuôn mặt
 @app.route('/api/quick-register', methods=['POST'])
 def api_quick_register():
     """API đăng ký nhanh khuôn mặt"""
@@ -2132,107 +2500,98 @@ def api_quick_register():
         data = request.form
         student_id = data.get('student_id', '').strip()
         full_name = data.get('full_name', '').strip()
-        
-        # Debug logging
+
         app.logger.info(f"Quick register request - ID: {student_id}, Name: {full_name}")
         app.logger.info(f"Form keys: {list(data.keys())}")
         app.logger.info(f"Files keys: {list(request.files.keys())}")
-        
+
         if not all([student_id, full_name]):
             return jsonify({'error': 'Mã sinh viên và họ tên là bắt buộc'}), 400
-        
-        # Handle webcam capture or file upload
-        face_image = None
-        
-        # Check webcam capture first (has priority)
-        if 'image_data' in request.form and request.form['image_data']:
-            image_data = request.form['image_data']
-            app.logger.info(f"Image data length: {len(image_data)}")
 
-            if ',' in image_data:
-                image_data = image_data.split(',')[1]
+        # Thu thập tất cả nguồn ảnh (webcam base64 + file upload)
+        sample_sources = []
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
 
-            try:
-                img_bytes = base64.b64decode(image_data)
-            except Exception as exc:
-                app.logger.error(f"Invalid base64 data: {exc}")
-                return jsonify({'error': 'Ảnh không hợp lệ: Không thể giải mã dữ liệu base64'}), 400
+        base64_fields = sorted(key for key in data.keys() if key.startswith('image_data'))
+        for key in base64_fields:
+            image_payload = data.get(key)
+            if image_payload:
+                sample_sources.append(('base64', image_payload))
 
-            filename = f"{student_id}_{full_name}.jpg"
-            file_path = DATA_DIR / filename
-            DATA_DIR.mkdir(exist_ok=True)
+        file_candidates = []
+        if request.files:
+            file_candidates.extend(request.files.getlist('face_images'))
+            file_candidates.extend(request.files.getlist('face_image'))
 
-            with open(file_path, 'wb') as f:
-                f.write(img_bytes)
+        seen_file_ids = set()
+        for file_storage in file_candidates:
+            if not file_storage or not file_storage.filename:
+                continue
+            marker = id(file_storage)
+            if marker in seen_file_ids:
+                continue
+            seen_file_ids.add(marker)
+            sample_sources.append(('upload', file_storage))
 
-            success, error_msg, face_count = validate_image_file(str(file_path), is_base64=False)
+        if len(sample_sources) < MIN_FACE_SAMPLES_PER_STUDENT:
+            return jsonify({'error': f'Cần tối thiểu {MIN_FACE_SAMPLES_PER_STUDENT} ảnh khuôn mặt (có thể chụp nhiều lần hoặc chọn nhiều file).'}), 400
+        if len(sample_sources) > MAX_FACE_SAMPLES_PER_REQUEST:
+            return jsonify({'error': f'Tối đa {MAX_FACE_SAMPLES_PER_REQUEST} ảnh khuôn mặt cho mỗi lần đăng ký.'}), 400
 
-            if not success:
-                safe_delete_file(str(file_path))
-                app.logger.error(f"Image validation failed: {error_msg}")
-                return jsonify({'error': f'Ảnh không hợp lệ: {error_msg}'}), 400
+        saved_paths = []
+        try:
+            for idx, (source_type, payload) in enumerate(sample_sources):
+                suffix = f"{idx:02d}"
+                if source_type == 'base64':
+                    path = save_base64_face_image(payload, student_id, full_name, suffix=suffix, timestamp=timestamp)
+                else:
+                    path = save_uploaded_face_image(payload, student_id, full_name, suffix=suffix, timestamp=timestamp)
+                saved_paths.append(path)
+        except ValueError as err:
+            for path in saved_paths:
+                safe_delete_file(path)
+            return jsonify({'error': str(err)}), 400
 
-            face_image = str(file_path)
-            app.logger.info(f"Saved webcam capture: {face_image} (faces: {face_count})")
-            
-        elif 'face_image' in request.files:
-            file = request.files['face_image']
-            if file and file.filename:
-                # Kiểm tra extension
-                ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
-                if ext not in ALLOWED_EXTENSIONS:
-                    return jsonify({'error': f'Định dạng file không hợp lệ. Chỉ chấp nhận: {", ".join(ALLOWED_EXTENSIONS)}'}), 400
-                
-                # Save uploaded file tạm
-                filename = secure_filename(f"{student_id}_{full_name}.jpg")
-                file_path = DATA_DIR / filename
-                DATA_DIR.mkdir(exist_ok=True)
-                file.save(str(file_path))
-                
-                # Validate file đã lưu
-                success, error_msg, face_count = validate_image_file(str(file_path), is_base64=False)
-                
-                if not success:
-                    # Xóa file không hợp lệ
-                    try:
-                        os.remove(str(file_path))
-                    except:
-                        pass
-                    app.logger.error(f"Image validation failed: {error_msg}")
-                    return jsonify({'error': f'Ảnh không hợp lệ: {error_msg}'}), 400
-                
-                face_image = str(file_path)
-                app.logger.info(f"Saved uploaded file: {face_image} (faces: {face_count})")
-        
-        if not face_image:
-            app.logger.error("No face image provided")
-            return jsonify({'error': 'Vui lòng chụp ảnh hoặc upload ảnh khuôn mặt'}), 400
-        
-        # Ảnh đã được validate, không cần kiểm tra lại
-        # Face encoding sẽ được tạo khi load_known_faces()
-        app.logger.info(f"Image validated successfully: {face_image}")
+        primary_face_path = saved_paths[0]
+        face_encoding_blob = extract_face_encoding(primary_face_path)
 
         email = data.get('email', f'{student_id}@student.edu.vn')
         phone = data.get('phone', '')
         class_name = data.get('class_name', 'Chưa phân lớp')
 
-        created, credentials = db.add_student(student_id, full_name, email, phone, class_name, face_image)
+        created, credentials = db.add_student(
+            student_id,
+            full_name,
+            email,
+            phone,
+            class_name,
+            primary_face_path,
+            face_encoding=face_encoding_blob,
+        )
         if not created:
-            safe_delete_file(face_image)
+            for path in saved_paths:
+                safe_delete_file(path)
             return jsonify({'error': 'Mã sinh viên đã tồn tại'}), 400
+
+        for idx, sample_path in enumerate(saved_paths):
+            db.add_face_sample(student_id, sample_path, is_primary=(idx == 0))
 
         load_known_faces()
 
-        payload = {'success': True, 'message': f'Đăng ký thành công cho {full_name}!'}
+        payload = {
+            'success': True,
+            'message': f'Đăng ký thành công cho {full_name}! Đã lưu {len(saved_paths)} ảnh.',
+            'samples': len(saved_paths),
+        }
         if credentials:
             payload['credentials'] = credentials
         return jsonify(payload), 200
-        
+
     except Exception as e:
         app.logger.error(f"Quick registration error: {e}")
         return jsonify({'error': f'Lỗi: {str(e)}'}), 500
 
-# Page routes
+# Các route trang
 @app.route('/students')
 @role_required('admin')
 def students_page():
@@ -2242,8 +2601,8 @@ def students_page():
 @app.route('/test-students')
 def test_students_page():
     """Trang test API students"""
-    # The dedicated test template was removed during cleanup; reuse the
-    # students management page instead so the route remains functional.
+    # Template test chuyên dụng đã bị xóa trong quá trình dọn dẹp; sử dụng lại
+    # trang quản lý sinh viên để route vẫn hoạt động.
     return render_template('students.html')
 
 @app.route('/reports')
@@ -2252,13 +2611,22 @@ def reports_page():
     return render_template('reports.html')
 
 @app.route('/classes')
+@role_required('admin')
 def classes_page():
     """Trang quản lý lớp học"""
     try:
-        classes = db.get_all_classes()
-        total_classes = len(classes)
-        total_students = sum(cls.get('student_count', 0) for cls in classes)
-        active_classes = sum(1 for cls in classes if cls.get('is_active', 1))
+        admin_classes = db.get_all_classes()
+        credit_classes = db.list_credit_classes_overview()
+        teacher_options = db.get_all_teachers()
+        classes = admin_classes + credit_classes
+
+        total_admin = len(admin_classes)
+        total_credit = len(credit_classes)
+        total_classes = total_admin + total_credit
+
+        # Sử dụng số lượng sinh viên của lớp hành chính; các lớp tín chỉ bao gồm số lượng riêng
+        total_students = sum(cls.get('student_count', 0) for cls in admin_classes)
+        active_classes = sum(1 for cls in admin_classes if cls.get('is_active', 1)) + sum(1 for cc in credit_classes if cc.get('is_active', 1))
 
         attendance_rates = []
         for cls in classes:
@@ -2276,8 +2644,12 @@ def classes_page():
 
         return render_template(
             'classes.html',
-            classes=classes,
+            admin_classes=admin_classes,
+            credit_classes=credit_classes,
+            teacher_options=teacher_options,
             total_classes=total_classes,
+            total_admin=total_admin,
+            total_credit=total_credit,
             total_students=total_students,
             active_classes=active_classes or total_classes,
             avg_attendance=avg_attendance,
@@ -2286,8 +2658,12 @@ def classes_page():
         app.logger.error(f"Error loading classes page: {error}")
         return render_template(
             'classes.html',
-            classes=[],
+            admin_classes=[],
+            credit_classes=[],
+            teacher_options=[],
             total_classes=0,
+            total_admin=0,
+            total_credit=0,
             total_students=0,
             active_classes=0,
             avg_attendance=0,
@@ -2359,12 +2735,41 @@ def api_create_student():
     email = (data.get('email') or '').strip() or None
     phone = (data.get('phone') or '').strip() or None
     class_name = (data.get('class_name') or '').strip() or None
-    face_image_path = None
+    face_files = []
+    if request.files:
+        face_files.extend(request.files.getlist('face_images'))
+        fallback_file = request.files.get('face_image')
+        if fallback_file:
+            face_files.append(fallback_file)
+
+    face_files = [f for f in face_files if f and f.filename]
+    if len(face_files) < MIN_FACE_SAMPLES_PER_STUDENT:
+        return jsonify({
+            'success': False,
+            'message': f'Cần tải lên tối thiểu {MIN_FACE_SAMPLES_PER_STUDENT} ảnh khuôn mặt rõ nét.',
+        }), 400
+    if len(face_files) > MAX_FACE_SAMPLES_PER_REQUEST:
+        return jsonify({
+            'success': False,
+            'message': f'Tối đa {MAX_FACE_SAMPLES_PER_REQUEST} ảnh khuôn mặt mỗi lần thêm sinh viên.',
+        }), 400
+
+    timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+    face_image_paths = []
 
     try:
-        file = request.files.get('face_image') if request.files else None
-        if file and file.filename:
-            face_image_path = save_uploaded_face_image(file, student_id, full_name)
+        for idx, file in enumerate(face_files):
+            path = save_uploaded_face_image(
+                file,
+                student_id,
+                full_name,
+                suffix=f"{idx:02d}",
+                timestamp=timestamp,
+            )
+            face_image_paths.append(path)
+
+        primary_face_path = face_image_paths[0] if face_image_paths else None
+        face_encoding_blob = extract_face_encoding(primary_face_path) if primary_face_path else None
 
         created, credentials = db.add_student(
             student_id=student_id,
@@ -2372,27 +2777,37 @@ def api_create_student():
             email=email,
             phone=phone,
             class_name=class_name,
-            face_image_path=face_image_path,
+            face_image_path=primary_face_path,
+            face_encoding=face_encoding_blob,
         )
 
         if not created:
-            safe_delete_file(face_image_path)
+            for path in face_image_paths:
+                safe_delete_file(path)
             return jsonify({'success': False, 'message': 'Mã sinh viên đã tồn tại'}), 400
 
-        if face_image_path:
-            load_known_faces()
+        for idx, sample_path in enumerate(face_image_paths):
+            db.add_face_sample(student_id, sample_path, is_primary=(idx == 0))
+
+        load_known_faces()
 
         student = db.get_student(student_id)
-        response_payload = {'success': True, 'data': serialize_student_record(student)}
+        response_payload = {
+            'success': True,
+            'data': serialize_student_record(student),
+            'samples': len(face_image_paths),
+        }
         if credentials:
             response_payload['credentials'] = credentials
         return jsonify(response_payload), 201
     except ValueError as err:
-        safe_delete_file(face_image_path)
+        for path in face_image_paths:
+            safe_delete_file(path)
         return jsonify({'success': False, 'message': str(err)}), 400
     except Exception as err:
         app.logger.error(f"Error creating student {student_id}: {err}", exc_info=True)
-        safe_delete_file(face_image_path)
+        for path in face_image_paths:
+            safe_delete_file(path)
         return jsonify({'success': False, 'message': 'Không thể tạo sinh viên'}), 500
 
 
@@ -2428,43 +2843,78 @@ def api_student_detail(student_id):
             if bool_value is not None:
                 updates['is_active'] = bool_value
 
-        file = request.files.get('face_image') if request.files else None
-        new_face_path = None
-        if file and file.filename:
+        face_files = []
+        if request.files:
+            face_files.extend(request.files.getlist('face_images'))
+            fallback_file = request.files.get('face_image')
+            if fallback_file:
+                face_files.append(fallback_file)
+
+        face_files = [f for f in face_files if f and f.filename]
+        saved_face_paths = []
+        if face_files:
+            if len(face_files) < MIN_FACE_SAMPLES_PER_STUDENT:
+                return jsonify({
+                    'success': False,
+                    'message': f'Cần tải lên tối thiểu {MIN_FACE_SAMPLES_PER_STUDENT} ảnh khuôn mặt rõ nét.',
+                }), 400
+            if len(face_files) > MAX_FACE_SAMPLES_PER_REQUEST:
+                return jsonify({
+                    'success': False,
+                    'message': f'Tối đa {MAX_FACE_SAMPLES_PER_REQUEST} ảnh khuôn mặt mỗi lần cập nhật.',
+                }), 400
+
+            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
             try:
-                new_face_path = save_uploaded_face_image(
-                    file,
-                    student_id,
-                    updates.get('full_name') or student_data.get('full_name'),
-                )
-                updates['face_image_path'] = new_face_path
+                for idx, file in enumerate(face_files):
+                    path = save_uploaded_face_image(
+                        file,
+                        student_id,
+                        updates.get('full_name') or student_data.get('full_name'),
+                        suffix=f"{idx:02d}",
+                        timestamp=timestamp,
+                    )
+                    saved_face_paths.append(path)
+
+                primary_face_path = saved_face_paths[0]
+                updates['face_image_path'] = primary_face_path
+                new_encoding = extract_face_encoding(primary_face_path)
+                if new_encoding:
+                    updates['face_encoding'] = new_encoding
             except ValueError as err:
+                for path in saved_face_paths:
+                    safe_delete_file(path)
                 return jsonify({'success': False, 'message': str(err)}), 400
 
         if not updates:
-            safe_delete_file(new_face_path)
+            for path in saved_face_paths:
+                safe_delete_file(path)
             return jsonify({'success': False, 'message': 'Không có dữ liệu để cập nhật'}), 400
 
         try:
             updated = db.update_student(student_id, **updates)
         except ValueError as err:
-            safe_delete_file(new_face_path)
+            for path in saved_face_paths:
+                safe_delete_file(path)
             return jsonify({'success': False, 'message': str(err)}), 400
 
         if not updated:
-            safe_delete_file(new_face_path)
+            for path in saved_face_paths:
+                safe_delete_file(path)
             return jsonify({'success': False, 'message': 'Không thể cập nhật sinh viên'}), 400
 
-        if new_face_path:
+        if saved_face_paths:
             previous_face_path = student_data.get('face_image_path')
-            if previous_face_path and previous_face_path != new_face_path:
+            if previous_face_path and previous_face_path not in saved_face_paths:
                 safe_delete_file(previous_face_path)
+            for idx, sample_path in enumerate(saved_face_paths):
+                db.add_face_sample(student_id, sample_path, is_primary=(idx == 0))
             load_known_faces()
 
         student = db.get_student(student_id)
         return jsonify({'success': True, 'data': serialize_student_record(student)})
 
-    # DELETE method
+    # Phương thức DELETE
     permanent = parse_bool(request.args.get('permanent'), default=True)
     deleted = db.delete_student(student_id, permanent=permanent)
     if not deleted:
@@ -2475,6 +2925,7 @@ def api_student_detail(student_id):
 
 
 @app.route('/api/classes', methods=['GET'])
+@role_required('admin')
 def api_get_classes():
     """API lấy danh sách lớp học"""
     try:
@@ -2508,6 +2959,121 @@ def api_get_credit_classes():
     except Exception as err:
         app.logger.error(f"Error getting credit classes: {err}", exc_info=True)
         return jsonify({'success': False, 'data': [], 'message': 'Không thể tải lớp tín chỉ'}), 500
+
+
+@app.route('/api/credit-classes', methods=['POST'])
+@role_required('admin')
+def api_create_credit_class():
+    data = get_request_data()
+    credit_code = (data.get('credit_code') or '').strip()
+    subject_name = (data.get('subject_name') or '').strip()
+    teacher_id = data.get('teacher_id')
+
+    if not credit_code or not subject_name:
+        return jsonify({'success': False, 'message': 'Mã lớp tín chỉ và tên môn học là bắt buộc'}), 400
+
+    try:
+        teacher_id = int(teacher_id)
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': 'Vui lòng chọn giảng viên phụ trách'}), 400
+
+    teacher = db.get_teacher(teacher_id)
+    if not teacher:
+        return jsonify({'success': False, 'message': 'Giảng viên không tồn tại hoặc đã bị vô hiệu hóa'}), 400
+
+    enrollment_limit = data.get('enrollment_limit')
+    if enrollment_limit in (None, '', []):
+        enrollment_limit = None
+    else:
+        try:
+            enrollment_limit = int(enrollment_limit)
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'message': 'Sĩ số tối đa không hợp lệ'}), 400
+
+    try:
+        credit_class_id = db.create_credit_class(
+            credit_code=credit_code,
+            subject_name=subject_name,
+            teacher_id=teacher_id,
+            semester=data.get('semester'),
+            academic_year=data.get('academic_year'),
+            room=data.get('room'),
+            schedule_info=data.get('schedule_info'),
+            enrollment_limit=enrollment_limit,
+            notes=data.get('notes'),
+            status=data.get('status') or 'draft'
+        )
+        record = serialize_credit_class_record(db.get_credit_class(credit_class_id))
+        return jsonify({'success': True, 'data': record}), 201
+    except ValueError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        app.logger.error(f"Error creating credit class: {exc}", exc_info=True)
+        return jsonify({'success': False, 'message': 'Không thể tạo lớp tín chỉ'}), 500
+
+
+@app.route('/api/credit-classes/<int:credit_class_id>', methods=['GET', 'PUT', 'DELETE'])
+@role_required('admin')
+def api_credit_class_detail(credit_class_id):
+    record = db.get_credit_class(credit_class_id)
+    if not record:
+        return jsonify({'success': False, 'message': 'Không tìm thấy lớp tín chỉ'}), 404
+
+    if request.method == 'GET':
+        return jsonify({'success': True, 'data': serialize_credit_class_record(record)})
+
+    if request.method == 'PUT':
+        data = get_request_data()
+        updates = {}
+
+        for field in ('credit_code', 'subject_name', 'semester', 'academic_year', 'room', 'schedule_info', 'status', 'notes'):
+            if field in data:
+                value = data.get(field)
+                updates[field] = value.strip() if isinstance(value, str) else value
+
+        if 'teacher_id' in data:
+            teacher_id = data.get('teacher_id')
+            try:
+                teacher_id = int(teacher_id)
+            except (TypeError, ValueError):
+                return jsonify({'success': False, 'message': 'Giảng viên không hợp lệ'}), 400
+            teacher = db.get_teacher(teacher_id)
+            if not teacher:
+                return jsonify({'success': False, 'message': 'Không tìm thấy giảng viên'}), 400
+            updates['teacher_id'] = teacher_id
+
+        if 'enrollment_limit' in data:
+            limit_value = data.get('enrollment_limit')
+            if limit_value in (None, '', []):
+                updates['enrollment_limit'] = None
+            else:
+                try:
+                    updates['enrollment_limit'] = int(limit_value)
+                except (TypeError, ValueError):
+                    return jsonify({'success': False, 'message': 'Sĩ số tối đa không hợp lệ'}), 400
+
+        if not updates:
+            return jsonify({'success': False, 'message': 'Không có dữ liệu để cập nhật'}), 400
+
+        try:
+            updated = db.update_credit_class(credit_class_id, **updates)
+            if not updated:
+                return jsonify({'success': False, 'message': 'Không thể cập nhật lớp tín chỉ'}), 400
+            refreshed = serialize_credit_class_record(db.get_credit_class(credit_class_id))
+            return jsonify({'success': True, 'data': refreshed})
+        except Exception as exc:
+            app.logger.error(f"Error updating credit class {credit_class_id}: {exc}", exc_info=True)
+            return jsonify({'success': False, 'message': 'Lỗi khi cập nhật lớp tín chỉ'}), 500
+
+    # DELETE
+    try:
+        deleted = db.delete_credit_class(credit_class_id)
+        if not deleted:
+            return jsonify({'success': False, 'message': 'Không thể xóa lớp tín chỉ'}), 400
+        return jsonify({'success': True})
+    except Exception as exc:
+        app.logger.error(f"Error deleting credit class {credit_class_id}: {exc}", exc_info=True)
+        return jsonify({'success': False, 'message': 'Lỗi khi xóa lớp tín chỉ'}), 500
 
 
 @app.route('/api/teacher/credit-classes', methods=['GET'])
@@ -2620,6 +3186,34 @@ def api_teacher_credit_class_sessions(credit_class_id):
         return jsonify({'success': False, 'message': 'Không thể tải phiên điểm danh'}), 500
 
 
+@app.route('/api/reports/credit-classes/<int:credit_class_id>/sessions', methods=['GET'])
+def api_reports_credit_class_sessions(credit_class_id):
+    """API công khai phục vụ bộ lọc báo cáo lấy danh sách phiên của lớp tín chỉ."""
+    limit = request.args.get('limit', 25, type=int) or 25
+    limit = max(5, min(limit, 100))
+
+    try:
+        credit_class = db.get_credit_class(credit_class_id)
+        if not credit_class:
+            return jsonify({'success': False, 'message': 'Không tìm thấy lớp tín chỉ'}), 404
+
+        sessions = db.list_sessions_for_class(credit_class_id, limit=limit) or []
+        payload = [serialize_session_payload(session) for session in sessions]
+        return jsonify({
+            'success': True,
+            'credit_class': serialize_credit_class_record(credit_class),
+            'sessions': payload,
+        })
+    except Exception as exc:
+        app.logger.error(
+            "Error loading report sessions for credit class %s: %s",
+            credit_class_id,
+            exc,
+            exc_info=True,
+        )
+        return jsonify({'success': False, 'message': 'Không thể tải danh sách phiên'}), 500
+
+
 @app.route('/api/student/credit-classes', methods=['GET'])
 @role_required('student', 'admin')
 def api_student_credit_classes():
@@ -2690,6 +3284,7 @@ def api_student_credit_classes():
 
 
 @app.route('/api/classes', methods=['POST'])
+@role_required('admin')
 def api_create_class():
     """API tạo lớp học mới"""
     data = get_request_data()
@@ -2705,7 +3300,6 @@ def api_create_class():
             class_name=class_name,
             semester=data.get('semester'),
             academic_year=data.get('academic_year'),
-            teacher_name=data.get('teacher_name'),
             description=data.get('description'),
         )
         created_class = db.get_class_by_id(class_id)
@@ -2718,6 +3312,7 @@ def api_create_class():
 
 
 @app.route('/api/classes/<int:class_id>', methods=['GET', 'PUT', 'DELETE'])
+@role_required('admin')
 def api_class_detail(class_id):
     """API lấy/cập nhật/xóa lớp học"""
     if request.method == 'GET':
@@ -2752,6 +3347,7 @@ def api_class_detail(class_id):
 
 
 @app.route('/api/classes/<int:class_id>/students', methods=['GET'])
+@role_required('admin')
 def api_class_students(class_id):
     """API danh sách sinh viên trong lớp"""
     class_data = db.get_class_by_id(class_id)
@@ -2772,6 +3368,7 @@ def api_class_students(class_id):
 
 
 @app.route('/api/classes/<int:class_id>/stats', methods=['GET'])
+@role_required('admin')
 def api_class_stats(class_id):
     """API thống kê lớp học"""
     class_data = db.get_class_by_id(class_id)
@@ -2929,13 +3526,13 @@ def api_mark_attendance_for_session(session_id):
     if not credit_class:
         return jsonify({'success': False, 'message': 'Credit class not found'}), 404
 
-    # Authorization: teacher can only mark for their own classes
+    # Ủy quyền: giảng viên chỉ có thể điểm danh cho các lớp của họ
     if get_current_role() == 'teacher':
         teacher_ctx = resolve_teacher_context()
         if not teacher_ctx or int(credit_class.get('teacher_id') or 0) != int(teacher_ctx.get('id')):
             return jsonify({'success': False, 'message': 'Không có quyền trên lớp này'}), 403
 
-    # Resolve student
+    # Xác định sinh viên
     student_row = db.get_student(student_code)
     if not student_row:
         return jsonify({'success': False, 'message': 'Không tìm thấy sinh viên'}), 404
@@ -3007,8 +3604,40 @@ def api_mark_attendance_for_session(session_id):
 def api_statistics():
     """API thống kê"""
     try:
-        attendance_data = get_today_attendance()
+        credit_class_id = request.args.get('credit_class_id', type=int)
+        session_id = request.args.get('session_id', type=int)
+
+        attendance_data = get_today_attendance(
+            credit_class_id=credit_class_id,
+            session_id=session_id,
+        )
+
         total_students = len(known_face_names) if known_face_names else 0
+        if credit_class_id:
+            try:
+                roster = db.get_credit_class_students(credit_class_id) or []
+                total_students = len(roster)
+            except Exception as roster_error:
+                app.logger.warning(
+                    "Không thể lấy sĩ số lớp tín chỉ %s: %s",
+                    credit_class_id,
+                    roster_error,
+                )
+        elif session_id:
+            session_row = db.get_session_by_id(session_id)
+            if session_row:
+                resolved_class_id = session_row.get('credit_class_id')
+                if resolved_class_id:
+                    try:
+                        roster = db.get_credit_class_students(resolved_class_id) or []
+                        total_students = len(roster)
+                    except Exception as roster_error:
+                        app.logger.warning(
+                            "Không thể lấy sĩ số cho phiên %s: %s",
+                            session_id,
+                            roster_error,
+                        )
+
         attended_students = len(attendance_data)
         attendance_rate = (attended_students / total_students * 100) if total_students > 0 else 0
         
@@ -3070,7 +3699,22 @@ def api_active_presence():
 def api_attendance_today():
     """API lấy điểm danh hôm nay"""
     try:
-        attendance_data = get_today_attendance()
+        credit_class_id = request.args.get('credit_class_id', type=int)
+        session_id = request.args.get('session_id', type=int)
+
+        attendance_data = get_today_attendance(
+            credit_class_id=credit_class_id,
+            session_id=session_id,
+        )
+
+        session_row = None
+        if session_id:
+            session_row = db.get_session_by_id(session_id)
+        elif credit_class_id:
+            session_row = db.get_active_session_for_class(credit_class_id)
+        else:
+            session_row = get_active_attendance_session()
+
         checked_in = []
         checked_out = []
         for item in attendance_data:
@@ -3083,7 +3727,7 @@ def api_attendance_today():
             'data': attendance_data,
             'checked_in': checked_in,
             'checked_out': checked_out,
-            'session': serialize_session_payload(get_active_attendance_session())
+            'session': serialize_session_payload(session_row)
         })
     except Exception as e:
         app.logger.error(f"Error getting today's attendance: {e}")
@@ -3285,7 +3929,7 @@ def update_faces():
         app.logger.error(f"Error updating faces: {e}")
         return f'Loi: {e}', 500
 
-# ===== ADVANCED AI TRAINING ROUTES =====
+# ===== CÁC ROUTE HUẤN LUYỆN AI NÂNG CAO =====
 
 @app.route('/api/train/start', methods=['POST'])
 def api_train_start():
@@ -3294,15 +3938,28 @@ def api_train_start():
         return jsonify({'error': 'FaceNet service not available'}), 400
     
     try:
-        # Initialize training service if not yet
+        # Khởi tạo training service nếu chưa có
         global training_service
         if training_service is None:
             from services.training_service import TrainingService
             training_service = TrainingService(face_service)
         
+        # Kiểm tra trước khi huấn luyện: đảm bảo mỗi sinh viên có đủ mẫu theo cấu hình
+        stats = training_service.get_training_stats()
+        not_ready = [s for s in (stats.get('students') or []) if not s.get('ready')]
+        if not_ready:
+            return jsonify({
+                'success': False,
+                'error': 'Insufficient training data',
+                'details': {
+                    'min_required': stats.get('min_samples_required'),
+                    'students': not_ready
+                }
+            }), 400
+
         # Train classifier
         success = training_service.train_classifier()
-        
+
         if success:
             stats = training_service.get_training_stats()
             return jsonify({
@@ -3313,8 +3970,8 @@ def api_train_start():
         else:
             return jsonify({
                 'success': False,
-                'error': 'Training failed - insufficient data'
-            }), 400
+                'error': 'Training failed - see server logs'
+            }), 500
     
     except Exception as e:
         app.logger.error(f"Training error: {e}")
@@ -3348,9 +4005,9 @@ def api_antispoof_check():
         return jsonify({'error': 'Anti-spoof service not available'}), 400
     
     try:
-        # Get image from request (base64 or file upload)
+        # Lấy ảnh từ request (base64 hoặc tải lên file)
         if 'image_data' in request.form:
-            # Base64 image
+            # Ảnh Base64
             image_data = request.form['image_data']
             if ',' in image_data:
                 image_data = image_data.split(',')[1]
@@ -3360,7 +4017,7 @@ def api_antispoof_check():
             frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
         elif 'image' in request.files:
-            # File upload
+            # Tải lên file
             file = request.files['image']
             img_bytes = file.read()
             nparr = np.frombuffer(img_bytes, np.uint8)
@@ -3369,7 +4026,7 @@ def api_antispoof_check():
         else:
             return jsonify({'error': 'No image provided'}), 400
         
-        # Check for spoofing
+        # Kiểm tra giả mạo
         result = antispoof_service.check_frame(frame)
         
         return jsonify({
@@ -3385,7 +4042,7 @@ def api_antispoof_check():
         return jsonify({'error': str(e)}), 500
 
 
-# Helper functions
+# Các hàm helper
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -3405,12 +4062,12 @@ def process_face_image(image_path, student_id):
         app.logger.error(f"Error processing face image for {student_id}: {e}")
 
 
-# ===== HELPER FUNCTIONS FROM FACENET =====
+# ===== CÁC HÀM HELPER TỪ FACENET =====
 
 def prewhiten_facenet(x):
     """
-    FaceNet-style prewhitening for better normalization.
-    Adapted from face_attendance/facenet.py
+    FaceNet-style prewhitening để chuẩn hóa tốt hơn.
+    Được điều chỉnh từ face_attendance/facenet.py
     """
     if isinstance(x, np.ndarray):
         mean = np.mean(x)
@@ -3423,24 +4080,24 @@ def prewhiten_facenet(x):
 
 def estimate_head_pose(landmarks, frame_size):
     """
-    Estimate simple head pose (yaw, pitch, roll) in degrees using solvePnP.
-    landmarks: dictionary or list of (x,y) points for key landmarks (we expect at least
-    left_eye, right_eye, nose, left_mouth, right_mouth) or list in the order returned
-    by dlib/face_recognition: we will try to handle common formats.
-    Returns (yaw_deg, pitch_deg, roll_deg) or (None, None, None) on failure.
+    Ước tính tư thế đầu đơn giản (yaw, pitch, roll) theo độ bằng solvePnP.
+    landmarks: dictionary hoặc danh sách các điểm (x,y) cho các mốc quan trọng (chúng tôi mong đợi ít nhất
+    left_eye, right_eye, nose, left_mouth, right_mouth) hoặc danh sách theo thứ tự trả về
+    bởi dlib/face_recognition: chúng tôi sẽ cố gắng xử lý các định dạng phổ biến.
+    Trả về (yaw_deg, pitch_deg, roll_deg) hoặc (None, None, None) nếu thất bại.
     """
     try:
-        # Convert landmarks to required numpy array of 2D points
+        # Chuyển đổi landmarks thành mảng numpy các điểm 2D cần thiết
         lm = None
         if isinstance(landmarks, dict):
-            # face_recognition returns 'left_eye','right_eye','nose_tip','mouth_left','mouth_right' sometimes
+            # face_recognition đôi khi trả về 'left_eye','right_eye','nose_tip','mouth_left','mouth_right'
             keys = ['left_eye', 'right_eye', 'nose_tip', 'mouth_left', 'mouth_right']
             pts2 = []
             for k in keys:
                 if k in landmarks:
                     pts2.append(landmarks[k])
             if len(pts2) < 4:
-                # fallback: use all dict values
+                # dự phòng: sử dụng tất cả các giá trị dict
                 pts2 = list(landmarks.values())
         else:
             pts2 = list(landmarks)
@@ -3448,8 +4105,8 @@ def estimate_head_pose(landmarks, frame_size):
         if len(pts2) < 4:
             return (None, None, None)
 
-        # Pick 4-5 stable points: left eye, right eye, nose, left mouth corner, right mouth corner
-        # Use a generic 3D model points (approximate)
+        # Chọn 4-5 điểm ổn định: mắt trái, mắt phải, mũi, khóe miệng trái, khóe miệng phải
+        # Sử dụng các điểm mô hình 3D chung (xấp xỉ)
         model_points = np.array([ 
             ( -30.0,  30.0,  -30.0),   # left eye
             (  30.0,  30.0,  -30.0),   # right eye
@@ -3458,18 +4115,18 @@ def estimate_head_pose(landmarks, frame_size):
             (  25.0, -30.0,  -25.0)    # right mouth
         ], dtype=np.float64)
 
-        # Map 2D image points from landmarks (take first 5)
+        # Ánh xạ các điểm ảnh 2D từ landmarks (lấy 5 điểm đầu tiên)
         image_points = []
         for i in range(min(len(pts2), 5)):
             p = pts2[i]
             image_points.append((float(p[0]), float(p[1])))
         image_points = np.array(image_points, dtype=np.float64)
 
-        # If we have fewer than model points, reduce model points to match
+        # Nếu chúng ta có ít điểm hơn mô hình, giảm số điểm mô hình để khớp
         if image_points.shape[0] < model_points.shape[0]:
             model_points = model_points[:image_points.shape[0]]
 
-        # Camera internals (approximate)
+        # Thông số nội tại của camera (xấp xỉ)
         size = frame_size
         focal_length = size[1]
         center = (size[1] / 2, size[0] / 2)
@@ -3479,20 +4136,20 @@ def estimate_head_pose(landmarks, frame_size):
             [0, 0, 1]
         ], dtype=np.float64)
 
-        dist_coeffs = np.zeros((4,1))  # assume no lens distortion
+        dist_coeffs = np.zeros((4,1))  # giả sử không có biến dạng ống kính
 
         # solvePnP
         success, rotation_vector, translation_vector = cv2.solvePnP(model_points, image_points, camera_matrix, dist_coeffs, flags=cv2.SOLVEPNP_ITERATIVE)
         if not success:
             return (None, None, None)
 
-        # Convert rotation vector to rotation matrix
+        # Chuyển đổi vector quay thành ma trận quay
         rmat, _ = cv2.Rodrigues(rotation_vector)
-        # Compose projection matrix then decompose to Euler angles
+        # Tạo ma trận chiếu sau đó phân rã thành các góc Euler
         pose_mat = cv2.hconcat((rmat, translation_vector))
         _, _, _, _, _, _, euler_angles = cv2.decomposeProjectionMatrix(pose_mat)
 
-        # euler_angles: [pitch, yaw, roll] in degrees (OpenCV ordering)
+        # euler_angles: [pitch, yaw, roll] theo độ (thứ tự OpenCV)
         pitch, yaw, roll = float(euler_angles[0]), float(euler_angles[1]), float(euler_angles[2])
         return (yaw, pitch, roll)
     except Exception as e:
@@ -3503,29 +4160,29 @@ def estimate_head_pose(landmarks, frame_size):
 
 def draw_progress_bar(frame, progress, x, y, w=150, h=20):
     """
-    Draw progress bar for attendance confirmation.
-    Adapted from face_attendance/reg.py
+    Vẽ thanh tiến trình để xác nhận điểm danh.
+    Được điều chỉnh từ face_attendance/reg.py
     
     Args:
-        frame: Video frame
-        progress: Progress value (0.0 to 1.0)
-        x, y: Top-left coordinates
-        w, h: Width and height of bar
+        frame: Khung hình video
+        progress: Giá trị tiến trình (0.0 đến 1.0)
+        x, y: Tọa độ trên cùng bên trái
+        w, h: Chiều rộng và chiều cao của thanh
     """
-    bar_y = y - 30  # Above the face box
+    bar_y = y - 30  # Phía trên hộp khuôn mặt
     
-    # Background (black)
+    # Nền (đen)
     cv2.rectangle(frame, (x, bar_y), (x + w, bar_y + h), (0, 0, 0), -1)
     
-    # Progress (green)
+    # Tiến trình (xanh lá)
     filled_width = int(w * progress)
     if filled_width > 0:
         cv2.rectangle(frame, (x, bar_y), (x + filled_width, bar_y + h), (0, 255, 0), -1)
     
-    # Border
+    # Viền
     cv2.rectangle(frame, (x, bar_y), (x + w, bar_y + h), (255, 255, 255), 1)
     
-    # Percentage text
+    # Văn bản phần trăm
     progress_text = f"{int(progress * 100)}%"
     text_size = cv2.getTextSize(progress_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
     text_x = x + (w - text_size[0]) // 2
@@ -3536,16 +4193,16 @@ def draw_progress_bar(frame, progress, x, y, w=150, h=20):
 
 def update_progress(student_id, name):
     """
-    Update attendance confirmation progress.
-    New behavior: require continuous frontal-looking time (LOOK_STRAIGHT_SECONDS) to confirm.
-    Returns: (elapsed_seconds, required_seconds, is_confirmed)
+    Cập nhật tiến trình xác nhận điểm danh.
+    Hành vi mới: yêu cầu thời gian nhìn thẳng liên tục (LOOK_STRAIGHT_SECONDS) để xác nhận.
+    Trả về: (elapsed_seconds, required_seconds, is_confirmed)
     """
     global attendance_progress
     now = datetime.now()
     with attendance_progress_lock:
         entry = attendance_progress.get(student_id)
         if entry is None:
-            # Start new frontal-looking window
+            # Bắt đầu cửa sổ nhìn thẳng mới
             attendance_progress[student_id] = {
                 'start_time': now,
                 'last_seen': now,
@@ -3553,11 +4210,11 @@ def update_progress(student_id, name):
             }
             elapsed = 0.0
         else:
-            # Continue window
-            # If there was a long gap since last seen, restart window
+            # Tiếp tục cửa sổ
+            # Nếu có khoảng cách dài kể từ lần cuối nhìn thấy, khởi động lại cửa sổ
             last = entry.get('last_seen')
             gap = (now - last).total_seconds() if last else 9999
-            if gap > 1.5:  # if missing for >1.5s, reset the frontal timer
+            if gap > 1.5:  # nếu mất tích > 1.5s, đặt lại bộ đếm thời gian nhìn thẳng
                 attendance_progress[student_id] = {
                     'start_time': now,
                     'last_seen': now,
@@ -3565,7 +4222,7 @@ def update_progress(student_id, name):
                 }
                 elapsed = 0.0
             else:
-                # Update last seen and compute elapsed continuous frontal seconds
+                # Cập nhật lần cuối nhìn thấy và tính toán số giây nhìn thẳng liên tục đã trôi qua
                 entry['last_seen'] = now
                 elapsed = (now - entry['start_time']).total_seconds()
 
@@ -3574,7 +4231,7 @@ def update_progress(student_id, name):
 
 
 def reset_progress(student_id):
-    """Reset progress for a student."""
+    """Đặt lại tiến trình cho một sinh viên."""
     global attendance_progress
     
     with attendance_progress_lock:
@@ -3582,22 +4239,22 @@ def reset_progress(student_id):
             del attendance_progress[student_id]
 
 
-# Initialize
+# Khởi tạo
 if __name__ == '__main__':
     try:
-        # Initialize database
+        # Khởi tạo database
         db.init_database()
         
-        # Ensure directories exist
+        # Đảm bảo các thư mục tồn tại
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         
-        # Load known faces
+        # Tải các khuôn mặt đã biết
         load_known_faces()
         
-        # Load today's recorded set from database
+        # Tải tập hợp đã ghi hôm nay từ database
         load_today_recorded()
         
-        # Log system startup
+        # Ghi log khởi động hệ thống
         db.log_system_event('INFO', 'He thong diem danh khoi dong', 'app')
         app.logger.info("He thong diem danh da khoi dong thanh cong")
         

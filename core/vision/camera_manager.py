@@ -1,4 +1,4 @@
-"""Camera device management with reusable state."""
+"""Quản lý thiết bị camera với trạng thái có thể tái sử dụng."""
 from __future__ import annotations
 
 import logging
@@ -13,23 +13,23 @@ logger = logging.getLogger(__name__)
 
 
 class CameraError(RuntimeError):
-    """Raised when camera operations fail."""
+    """Được ném ra khi các thao tác camera thất bại."""
 
 
 class CameraProvider(Protocol):
-    """Abstraction for objects that can supply cv2.VideoCapture."""
+    """Trừu tượng hóa cho các đối tượng có thể cung cấp cv2.VideoCapture."""
 
     def open(self, index: int) -> cv2.VideoCapture:
         ...
 
 
 class DefaultCameraProvider:
-    """Real provider that uses OpenCV to create VideoCapture objects."""
+    """Provider thực tế sử dụng OpenCV để tạo các đối tượng VideoCapture."""
 
     def open(self, index: int) -> cv2.VideoCapture:
         capture = cv2.VideoCapture(index)
         if not capture or not capture.isOpened():
-            raise CameraError(f"Cannot open camera index {index}")
+            raise CameraError(f"Không thể mở camera index {index}")
         return capture
 
 
@@ -44,14 +44,14 @@ class CameraConfig:
 
 @dataclass
 class CameraState:
-    """State container for camera device handles."""
+    """Container trạng thái cho các handle thiết bị camera."""
 
     capture: Optional[cv2.VideoCapture] = None
     enabled: bool = True
 
 
 class CameraManager:
-    """Owns camera lifecycle and exposes safe read operations."""
+    """Sở hữu vòng đời camera và cung cấp các thao tác đọc an toàn."""
 
     def __init__(
         self,
@@ -97,7 +97,7 @@ class CameraManager:
             actual_h = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
             fps = capture.get(cv2.CAP_PROP_FPS)
             logger.info(
-                "Camera ready: %sx%s @ %.2f fps",
+                "Camera sẵn sàng: %sx%s @ %.2f fps",
                 actual_w,
                 actual_h,
                 fps or 0,
@@ -105,16 +105,16 @@ class CameraManager:
 
             warmup = max(0, self.config.warmup_frames)
             if warmup:
-                logger.debug("Warming up camera (%s frames)", warmup)
+                logger.debug("Đang khởi động camera (%s frames)", warmup)
                 success = 0
                 for _ in range(warmup):
                     ret, _frame = capture.read()
                     if ret:
                         success += 1
                     time.sleep(0.05)
-                logger.debug("Warmup frames ok=%s/%s", success, warmup)
+                logger.debug("Khởi động frames ok=%s/%s", success, warmup)
         except Exception as exc:
-            logger.warning("Unable to configure camera: %s", exc)
+            logger.warning("Không thể cấu hình camera: %s", exc)
 
     def stop(self) -> None:
         capture = self.state.capture
@@ -124,11 +124,11 @@ class CameraManager:
 
     def read(self):
         if not self.state.enabled:
-            raise CameraError("Camera disabled")
+            raise CameraError("Camera bị vô hiệu hóa")
         capture = self.start()
         ret, frame = capture.read()
         if not ret or frame is None:
-            raise CameraError("Unable to read frame from camera")
+            raise CameraError("Không thể đọc khung hình từ camera")
         return frame
 
     def set_enabled(self, value: bool):

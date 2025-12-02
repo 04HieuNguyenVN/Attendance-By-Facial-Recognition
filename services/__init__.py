@@ -1,11 +1,11 @@
 """
-Advanced face recognition services for attendance system.
+Các dịch vụ nhận diện khuôn mặt nâng cao cho hệ thống điểm danh.
 
-This package provides:
-- FaceNet-based embeddings (more accurate than face_recognition library)
-- MTCNN face detection and alignment
-- Anti-spoofing detection to prevent photo/video attacks
-- Training pipeline for registering new students
+Gói này cung cấp:
+- Embeddings dựa trên FaceNet (chính xác hơn thư viện face_recognition)
+- Phát hiện và căn chỉnh khuôn mặt bằng MTCNN
+- Phát hiện chống giả mạo để ngăn chặn các cuộc tấn công bằng ảnh/video
+- Quy trình huấn luyện để đăng ký sinh viên mới
 """
 
 __all__ = [

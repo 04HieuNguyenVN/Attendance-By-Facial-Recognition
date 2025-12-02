@@ -10,14 +10,44 @@ Chức năng:
 
 import os
 import pickle
+import shutil
 import numpy as np
 from pathlib import Path
 from typing import List, Tuple
 from sklearn.svm import SVC
 from sklearn.preprocessing import LabelEncoder
 import logging
+from werkzeug.utils import secure_filename
 
 logger = logging.getLogger(__name__)
+
+RESERVED_DATA_SUBDIRS = {'training_samples', 'models', 'external_assets'}
+
+
+def _student_dir_name(student_id: str) -> str:
+    safe_id = secure_filename((student_id or '').strip()) or 'student'
+    return safe_id.lower()
+
+
+def _iter_student_sample_images(base_dir: Path) -> List[Path]:
+    allowed_suffixes = {'.jpg', '.jpeg', '.png'}
+    files: List[Path] = []
+    if not base_dir.exists():
+        return files
+
+    for entry in base_dir.iterdir():
+        if entry.is_file() and entry.suffix.lower() in allowed_suffixes:
+            files.append(entry)
+            continue
+
+        if not entry.is_dir() or entry.name in RESERVED_DATA_SUBDIRS:
+            continue
+
+        for sub_path in entry.rglob('*'):
+            if sub_path.is_file() and sub_path.suffix.lower() in allowed_suffixes:
+                files.append(sub_path)
+
+    return files
 
 
 class TrainingService:
@@ -27,7 +57,7 @@ class TrainingService:
                  face_service,
                  data_dir: str = 'data',
                  models_dir: str = 'data/models',
-                 min_samples_per_person: int = 10):
+                 min_samples_per_person: int = 3):
         """
         Khởi tạo dịch vụ huấn luyện.
 
@@ -126,39 +156,44 @@ class TrainingService:
         embeddings_list = []
         labels_list = []
         
-        # Tải từ các ảnh mặt cá nhân trong thư mục data
-        for img_path in self.data_dir.glob('*.jpg'):
+        image_files = _iter_student_sample_images(self.data_dir)
+
+        for img_path in image_files:
             if img_path.stem == '.gitkeep':
                 continue
-            
+
             try:
-                # Phân tích mã sinh viên từ tên file
-                parts = img_path.stem.split('_')
-                if len(parts) >= 2:
-                    student_id = parts[0]
+                relative_parts = ()
+                try:
+                    relative_parts = img_path.relative_to(self.data_dir).parts
+                except ValueError:
+                    relative_parts = ()
+
+                student_id = None
+                if len(relative_parts) > 1 and relative_parts[0] not in RESERVED_DATA_SUBDIRS:
+                    student_id = relative_parts[0]
                 else:
-                    student_id = img_path.stem
-                
-                # Đọc ảnh và lấy embedding
+                    parts = img_path.stem.split('_')
+                    student_id = parts[0] if parts else img_path.stem
+
                 import cv2
                 img = cv2.imread(str(img_path))
                 if img is None:
                     continue
-                
-                # Phát hiện khuôn mặt
+
                 results = self.face_service.process_frame(img)
                 if len(results) == 0:
                     logger.warning(f"Không tìm thấy khuôn mặt trong {img_path.name}")
                     continue
-                
+
                 embedding = results[0]['embedding']
                 embeddings_list.append(embedding)
                 labels_list.append(student_id)
-                
-                logger.debug(f"Đã tải embedding cho {student_id} từ {img_path.name}")
-            
+
+                logger.debug(f"Đã tải embedding cho {student_id} từ {img_path}")
+
             except Exception as e:
-                logger.error(f"Lỗi khi tải {img_path.name}: {e}")
+                logger.error(f"Lỗi khi tải {img_path}: {e}")
                 continue
         
         # Tải từ các thư mục training_samples
@@ -221,12 +256,18 @@ class TrainingService:
             logger.error("Không tìm thấy dữ liệu huấn luyện!")
             return False
         
-        # Kiểm tra số mẫu tối thiểu
+        # Kiểm tra số mẫu tối thiểu — nếu có sinh viên chưa đủ mẫu thì không tiến hành huấn luyện
         unique_labels, counts = np.unique(labels, return_counts=True)
+        insufficient = []
         for label, count in zip(unique_labels, counts):
             if count < self.min_samples_per_person:
-                logger.warning(f"Student {label} has only {count} samples "
-                             f"(minimum: {self.min_samples_per_person})")
+                insufficient.append((label, int(count)))
+
+        if insufficient:
+            for label, count in insufficient:
+                logger.warning(f"Sinh viên {label} chỉ có {count} mẫu (tối thiểu: {self.min_samples_per_person})")
+            logger.error("Huấn luyện bị huỷ vì có sinh viên chưa đủ mẫu yêu cầu.")
+            return False
         
         # Mã hóa nhãn
         label_encoder = LabelEncoder()
@@ -303,9 +344,20 @@ class TrainingService:
             logger.info(f"Đã xóa mẫu huấn luyện cho {student_id}")
         
         # Xóa các ảnh cá nhân tương ứng
-        for img_path in self.data_dir.glob(f'{student_id}_*.jpg'):
-            img_path.unlink()
-            logger.info(f"Đã xóa {img_path.name}")
+        legacy_patterns = ['*.jpg', '*.jpeg', '*.png']
+        for pattern in legacy_patterns:
+            pattern_str = f'{student_id}_{pattern}'
+            for img_path in self.data_dir.glob(pattern_str):
+                try:
+                    img_path.unlink()
+                    logger.info(f"Đã xóa {img_path.name}")
+                except FileNotFoundError:
+                    continue
+
+        student_dir = self.data_dir / _student_dir_name(student_id)
+        if student_dir.exists() and student_dir.is_dir():
+            shutil.rmtree(student_dir)
+            logger.info(f"Đã xóa thư mục ảnh của {student_id}")
         
         # Huấn luyện lại
         success = self.train_classifier()

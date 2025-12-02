@@ -1,5 +1,4 @@
 """
-Logging configuration for Attendance System
 Cấu hình logging cho hệ thống điểm danh
 """
 
@@ -43,12 +42,12 @@ def setup_logging(app, log_level='INFO', max_log_size=10*1024*1024, backup_count
     file_handler.setLevel(log_level)
     file_handler.setFormatter(formatter)
     
-    # Console handler
+    # Handler cho console
     console_handler = logging.StreamHandler()
     console_handler.setLevel(log_level)
     console_handler.setFormatter(formatter)
     
-    # Error file handler
+    # Handler cho file lỗi
     error_handler = logging.handlers.RotatingFileHandler(
         log_dir / 'errors.log',
         maxBytes=max_log_size,
@@ -58,7 +57,7 @@ def setup_logging(app, log_level='INFO', max_log_size=10*1024*1024, backup_count
     error_handler.setLevel(logging.ERROR)
     error_handler.setFormatter(formatter)
     
-    # Security log handler
+    # Handler cho log bảo mật
     security_handler = logging.handlers.RotatingFileHandler(
         log_dir / 'security.log',
         maxBytes=max_log_size,
@@ -101,7 +100,7 @@ def setup_logging(app, log_level='INFO', max_log_size=10*1024*1024, backup_count
     # Cấu hình Flask logger
     app.logger.setLevel(log_level)
     
-    # Log startup
+    # Ghi log khi khởi động
     app.logger.info("=" * 50)
     app.logger.info("ATTENDANCE SYSTEM STARTUP")
     app.logger.info(f"Timestamp: {datetime.now().isoformat()}")
@@ -189,21 +188,21 @@ class APILogger:
         self.logger = logging.getLogger('api')
     
     def log_request(self, method, endpoint, user_id=None, ip_address=None):
-        """Log API request"""
+        """Log yêu cầu API"""
         user_info = f", User: {user_id}" if user_id else ""
         ip_info = f", IP: {ip_address}" if ip_address else ""
         self.logger.info(f"API Request - {method} {endpoint}{user_info}{ip_info}")
     
     def log_response(self, endpoint, status_code, duration=None):
-        """Log API response"""
+        """Log phản hồi API"""
         duration_info = f", Duration: {duration:.3f}s" if duration else ""
         self.logger.info(f"API Response - {endpoint}, Status: {status_code}{duration_info}")
     
     def log_error(self, endpoint, error_message, status_code=500):
-        """Log API error"""
+        """Log lỗi API"""
         self.logger.error(f"API Error - {endpoint}, Status: {status_code}, Error: {error_message}")
 
-# Global logger instances
+# Các instance logger toàn cục
 security_logger = SecurityLogger()
 face_recognition_logger = FaceRecognitionLogger()
 database_logger = DatabaseLogger()

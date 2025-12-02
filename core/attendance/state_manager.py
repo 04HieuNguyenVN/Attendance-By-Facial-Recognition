@@ -1,4 +1,4 @@
-"""Centralized attendance state machine for check-in/check-out workflows."""
+"""Máy trạng thái điểm danh tập trung cho các quy trình check-in/check-out."""
 from __future__ import annotations
 
 import logging
@@ -13,7 +13,7 @@ EventBroadcaster = Callable[[Dict[str, Any]], None]
 
 
 class AttendanceStateManager:
-    """Thread-safe state manager for attendance lifecycle."""
+    """Trình quản lý trạng thái an toàn luồng cho vòng đời điểm danh."""
 
     def __init__(
         self,
@@ -42,8 +42,7 @@ class AttendanceStateManager:
         self._lock = threading.RLock()
 
     # ------------------------------------------------------------------
-    # Loading helpers
-    # ------------------------------------------------------------------
+    # Các hàm hỗ trợ tải dữ liệu
     def load_today_records(self) -> None:
         try:
             session_ctx = self._session_provider()
@@ -78,8 +77,7 @@ class AttendanceStateManager:
                 }
 
     # ------------------------------------------------------------------
-    # Query helpers
-    # ------------------------------------------------------------------
+    # Các hàm hỗ trợ truy vấn
     def is_checked_in(self, student_id: str) -> bool:
         with self._lock:
             return student_id in self._checked_in
@@ -98,8 +96,7 @@ class AttendanceStateManager:
             return student_id in self._presence
 
     # ------------------------------------------------------------------
-    # Check-in/out operations
-    # ------------------------------------------------------------------
+    # Các thao tác Check-in/out
     def mark_check_in(
         self,
         *,
@@ -113,7 +110,7 @@ class AttendanceStateManager:
         expected_id = (expected_student_id or "").strip()
         if expected_id and normalized_id and normalized_id != expected_id:
             self._logger.info(
-                "[Attendance] Rejecting check-in %s (expected %s)", normalized_id, expected_id
+                "[Attendance] Từ chối check-in %s (kỳ vọng %s)", normalized_id, expected_id
             )
             return False
 
@@ -124,7 +121,7 @@ class AttendanceStateManager:
             and int(credit_class_id or 0) != int(expected_credit_class_id)
         ):
             self._logger.info(
-                "[Attendance] Rejecting check-in for %s: session mismatch (expected %s, active %s)",
+                "[Attendance] Từ chối check-in cho %s: sai lệch phiên (kỳ vọng %s, đang hoạt động %s)",
                 normalized_id or student_id,
                 expected_credit_class_id,
                 credit_class_id,
@@ -182,7 +179,7 @@ class AttendanceStateManager:
                     },
                 }
             )
-        self._logger.info("[Attendance] Check-in success for %s", normalized_id)
+        self._logger.info("[Attendance] Check-in thành công cho %s", normalized_id)
         return True
 
     def mark_check_out(
@@ -199,7 +196,7 @@ class AttendanceStateManager:
         expected_id = (expected_student_id or "").strip()
         if expected_id and normalized_id and normalized_id != expected_id:
             self._logger.info(
-                "[Attendance] Rejecting checkout %s (expected %s)", normalized_id, expected_id
+                "[Attendance] Từ chối checkout %s (kỳ vọng %s)", normalized_id, expected_id
             )
             return False
 
@@ -210,7 +207,7 @@ class AttendanceStateManager:
             and int(credit_class_id or 0) != int(expected_credit_class_id)
         ):
             self._logger.info(
-                "[Attendance] Rejecting checkout for %s: session mismatch (expected %s, active %s)",
+                "[Attendance] Từ chối checkout cho %s: sai lệch phiên (kỳ vọng %s, đang hoạt động %s)",
                 normalized_id or student_id,
                 expected_credit_class_id,
                 credit_class_id,
@@ -253,12 +250,11 @@ class AttendanceStateManager:
                     },
                 }
             )
-        self._logger.info("[Attendance] Checkout success for %s (%s)", normalized_id, reason)
+        self._logger.info("[Attendance] Checkout thành công cho %s (%s)", normalized_id, reason)
         return True
 
     # ------------------------------------------------------------------
-    # Presence tracking
-    # ------------------------------------------------------------------
+    # Theo dõi sự hiện diện
     def update_presence(self, student_id: str, name: str) -> None:
         now = datetime.now()
         with self._lock:
@@ -273,7 +269,7 @@ class AttendanceStateManager:
         try:
             self._db.update_last_seen(student_id, name)
         except Exception as exc:  # pragma: no cover - DB call best effort
-            self._logger.debug("[Attendance] update_last_seen failed: %s", exc)
+            self._logger.debug("[Attendance] update_last_seen thất bại: %s", exc)
 
     def prune_presence(self) -> None:
         now = datetime.now()
@@ -307,8 +303,7 @@ class AttendanceStateManager:
         return snapshot
 
     # ------------------------------------------------------------------
-    # Confirmation tracking
-    # ------------------------------------------------------------------
+    # Theo dõi xác nhận
     def track_confirmation(self, student_id: str, name: str) -> Tuple[float, float, bool, float]:
         if self._confirm_seconds == 0:
             return (0.0, 0.0, True, 1.0)
@@ -337,8 +332,7 @@ class AttendanceStateManager:
             self._progress.pop(student_id, None)
 
     # ------------------------------------------------------------------
-    # Utilities
-    # ------------------------------------------------------------------
+    # Tiện ích
     @property
     def confirm_seconds(self) -> float:
         return self._confirm_seconds

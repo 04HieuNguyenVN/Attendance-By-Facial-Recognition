@@ -4,37 +4,24 @@
 {% block title %}Quản lý lớp học - Hệ thống điểm danh{% endblock %}
 
 {% block extra_css %}
-<style>
-    .class-card {
-        transition: transform 0.2s;
-        border: none;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    }
-    .class-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-    }
-    .stats-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-    }
-    .stats-card .card-body {
-        padding: 1.5rem;
-    }
-    .stats-number {
-        font-size: 2.5rem;
-        font-weight: bold;
-    }
-    .class-badge {
-        font-size: 0.8rem;
-    }
-    .action-btn {
-        margin: 2px;
-    }
-    .text-pre-wrap {
-        white-space: pre-wrap;
-    }
-</style>
+    <style>
+        .stats-card .card-body {
+            padding: 1.5rem;
+        }
+        .stats-number {
+            font-size: 2.5rem;
+            font-weight: bold;
+        }
+        .class-badge {
+            font-size: 0.8rem;
+        }
+        .action-btn {
+            margin: 2px;
+        }
+        .text-pre-wrap {
+            white-space: pre-wrap;
+        }
+    </style>
 {% endblock %}
 
 {% block content %}
@@ -45,9 +32,16 @@
         <p class="text-muted">Quản lý thông tin lớp học và sinh viên</p>
     </div>
     <div class="col-md-4 text-end">
-        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addClassModal">
-            <i class="fas fa-plus me-1"></i>Thêm lớp học
-        </button>
+        {% if current_user and (current_role or current_user.role)|lower == 'admin' %}
+        <div class="btn-group" role="group">
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addClassModal">
+                <i class="fas fa-plus me-1"></i>Thêm lớp hành chính
+            </button>
+            <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addCreditClassModal">
+                <i class="fas fa-plus-circle me-1"></i>Thêm lớp tín chỉ
+            </button>
+        </div>
+        {% endif %}
     </div>
 </div>
 
@@ -91,92 +85,125 @@
             </div>
         </div>
 
-        <!-- Classes List -->
-        <div class="row">
-            {% for class_info in classes %}
-            <div class="col-md-6 col-lg-4 mb-4">
-                <div class="card class-card h-100">
-                    <div class="card-header bg-white">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <h5 class="card-title mb-0">{{ class_info.class_name }}</h5>
-                            <span class="badge bg-primary class-badge">{{ class_info.class_code }}</span>
+        <!-- Classes List: separate Admin and Credit classes -->
+        <ul class="nav nav-tabs mb-4" id="classTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="admin-tab" data-bs-toggle="tab" data-bs-target="#admin" type="button" role="tab" aria-controls="admin" aria-selected="true">Lớp hành chính ({{ total_admin }})</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="credit-tab" data-bs-toggle="tab" data-bs-target="#credit" type="button" role="tab" aria-controls="credit" aria-selected="false">Lớp tín chỉ ({{ total_credit }})</button>
+            </li>
+        </ul>
+
+        <div class="tab-content">
+            <div class="tab-pane fade show active" id="admin" role="tabpanel" aria-labelledby="admin-tab">
+                <div class="row">
+                    {% for class_info in admin_classes %}
+                    <div class="col-md-6 col-lg-4 mb-4">
+                        <div class="card class-card h-100">
+                            <div class="card-header bg-white">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h5 class="card-title mb-0">{{ class_info.class_name }}</h5>
+                                    <span class="badge bg-primary class-badge">{{ class_info.class_code }}</span>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-2">
+                                    <small class="text-muted">
+                                        <i class="fas fa-user-tie me-1"></i>
+                                        Không áp dụng
+                                    </small>
+                                </div>
+                                <div class="mb-2">
+                                    <small class="text-muted">
+                                        <i class="fas fa-calendar me-1"></i>
+                                        {{ class_info.semester or 'N/A' }} - {{ class_info.academic_year or 'N/A' }}
+                                    </small>
+                                </div>
+                                <div class="mb-3">
+                                    <small class="text-muted">
+                                        <i class="fas fa-users me-1"></i>
+                                        {{ class_info.student_count }} sinh viên
+                                    </small>
+                                </div>
+                                {% if class_info.description %}
+                                <p class="card-text small text-muted">{{ class_info.description[:100] }}{% if class_info.description|length > 100 %}...{% endif %}</p>
+                                {% endif %}
+                            </div>
+                            <div class="card-footer bg-white">
+                                <div class="btn-group w-100" role="group">
+                                    <button type="button" class="btn btn-outline-primary btn-sm action-btn" data-action="view" data-class-id="{{ class_info.id }}" title="Xem chi tiết lớp học"><i class="fas fa-eye"></i></button>
+                                    <button type="button" class="btn btn-outline-success btn-sm action-btn" data-action="students" data-class-id="{{ class_info.id }}" title="Xem sinh viên trong lớp"><i class="fas fa-users"></i></button>
+                                    <button type="button" class="btn btn-outline-info btn-sm action-btn" data-action="stats" data-class-id="{{ class_info.id }}" title="Xem thống kê lớp học"><i class="fas fa-chart-bar"></i></button>
+                                    <button type="button" class="btn btn-outline-warning btn-sm action-btn" data-action="edit" data-class-id="{{ class_info.id }}" title="Chỉnh sửa lớp học"><i class="fas fa-edit"></i></button>
+                                    <button type="button" class="btn btn-outline-danger btn-sm action-btn" data-action="delete" data-class-id="{{ class_info.id }}" title="Xóa lớp học"><i class="fas fa-trash"></i></button>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div class="card-body">
-                        <div class="mb-2">
-                            <small class="text-muted">
-                                <i class="fas fa-user-tie me-1"></i>
-                                {{ class_info.teacher_name or 'Chưa có GV' }}
-                            </small>
-                        </div>
-                        <div class="mb-2">
-                            <small class="text-muted">
-                                <i class="fas fa-calendar me-1"></i>
-                                {{ class_info.semester or 'N/A' }} - {{ class_info.academic_year or 'N/A' }}
-                            </small>
-                        </div>
-                        <div class="mb-3">
-                            <small class="text-muted">
-                                <i class="fas fa-users me-1"></i>
-                                {{ class_info.student_count }} sinh viên
-                            </small>
-                        </div>
-                        {% if class_info.description %}
-                        <p class="card-text small text-muted">{{ class_info.description[:100] }}{% if class_info.description|length > 100 %}...{% endif %}</p>
-                        {% endif %}
-                    </div>
-                    <div class="card-footer bg-white">
-                        <div class="btn-group w-100" role="group">
-                            <button type="button" class="btn btn-outline-primary btn-sm action-btn" 
-                                    data-action="view" 
-                                    data-class-id="{{ class_info.id }}" 
-                                    title="Xem chi tiết lớp học" 
-                                    aria-label="Xem chi tiết lớp học">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                            <button type="button" class="btn btn-outline-success btn-sm action-btn" 
-                                    data-action="students" 
-                                    data-class-id="{{ class_info.id }}" 
-                                    title="Xem sinh viên trong lớp" 
-                                    aria-label="Xem sinh viên trong lớp">
-                                <i class="fas fa-users"></i>
-                            </button>
-                            <button type="button" class="btn btn-outline-info btn-sm action-btn" 
-                                    data-action="stats" 
-                                    data-class-id="{{ class_info.id }}" 
-                                    title="Xem thống kê lớp học" 
-                                    aria-label="Xem thống kê lớp học">
-                                <i class="fas fa-chart-bar"></i>
-                            </button>
-                            <button type="button" class="btn btn-outline-warning btn-sm action-btn" 
-                                    data-action="edit" 
-                                    data-class-id="{{ class_info.id }}" 
-                                    title="Chỉnh sửa lớp học" 
-                                    aria-label="Chỉnh sửa lớp học">
-                                <i class="fas fa-edit"></i>
-                            </button>
-                            <button type="button" class="btn btn-outline-danger btn-sm action-btn" 
-                                    data-action="delete" 
-                                    data-class-id="{{ class_info.id }}" 
-                                    title="Xóa lớp học" 
-                                    aria-label="Xóa lớp học">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        </div>
-                    </div>
+                    {% endfor %}
                 </div>
             </div>
-            {% endfor %}
+
+            <div class="tab-pane fade" id="credit" role="tabpanel" aria-labelledby="credit-tab">
+                <div class="row">
+                    {% for class_info in credit_classes %}
+                    <div class="col-md-6 col-lg-4 mb-4">
+                        <div class="card class-card h-100">
+                            <div class="card-header bg-white">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h5 class="card-title mb-0">{{ class_info.subject_name }}</h5>
+                                    <span class="badge bg-success class-badge">{{ class_info.credit_code }}</span>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-2">
+                                    <small class="text-muted">
+                                        <i class="fas fa-user-tie me-1"></i>
+                                        {{ class_info.teacher_name or 'Chưa có GV' }}
+                                    </small>
+                                </div>
+                                <div class="mb-2">
+                                    <small class="text-muted">
+                                        <i class="fas fa-calendar me-1"></i>
+                                        {{ class_info.semester or 'N/A' }} - {{ class_info.academic_year or 'N/A' }}
+                                    </small>
+                                </div>
+                                <div class="mb-3">
+                                    <small class="text-muted">
+                                        <i class="fas fa-users me-1"></i>
+                                        {{ class_info.student_count }} sinh viên
+                                    </small>
+                                </div>
+                                {% if class_info.notes %}
+                                <p class="card-text small text-muted">{{ class_info.notes[:100] }}{% if class_info.notes|length > 100 %}...{% endif %}</p>
+                                {% endif %}
+                            </div>
+                            <div class="card-footer bg-white">
+                                <div class="btn-group w-100" role="group">
+                                    <button type="button" class="btn btn-outline-primary btn-sm action-btn" data-action="view-credit" data-credit-id="{{ class_info.id }}" title="Xem chi tiết lớp tín chỉ"><i class="fas fa-eye"></i></button>
+                                    <button type="button" class="btn btn-outline-success btn-sm action-btn" data-action="students-credit" data-credit-id="{{ class_info.id }}" title="Xem sinh viên trong lớp tín chỉ"><i class="fas fa-users"></i></button>
+                                    <button type="button" class="btn btn-outline-warning btn-sm action-btn" data-action="edit-credit" data-credit-id="{{ class_info.id }}" title="Chỉnh sửa lớp tín chỉ"><i class="fas fa-edit"></i></button>
+                                    <button type="button" class="btn btn-outline-danger btn-sm action-btn" data-action="delete-credit" data-credit-id="{{ class_info.id }}" title="Xóa lớp tín chỉ"><i class="fas fa-trash"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
         </div>
 
-        {% if not classes %}
+        {% if not admin_classes and not credit_classes %}
         <div class="text-center py-5">
             <i class="fas fa-chalkboard-teacher fa-3x text-muted mb-3"></i>
             <h4 class="text-muted">Chưa có lớp học nào</h4>
             <p class="text-muted">Hãy thêm lớp học đầu tiên để bắt đầu</p>
+            {% if current_user and (current_role or current_user.role)|lower == 'admin' %}
             <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addClassModal">
                 <i class="fas fa-plus me-1"></i>Thêm lớp học
             </button>
+            {% endif %}
         </div>
         {% endif %}
     </div>
@@ -221,10 +248,6 @@
                             </div>
                         </div>
                         <div class="mb-3">
-                            <label for="teacherName" class="form-label">Tên giảng viên</label>
-                            <input type="text" class="form-control" id="teacherName" name="teacher_name">
-                        </div>
-                        <div class="mb-3">
                             <label for="description" class="form-label">Mô tả</label>
                             <textarea class="form-control" id="description" name="description" rows="3"></textarea>
                         </div>
@@ -233,6 +256,150 @@
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-save me-1"></i>Lưu
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Credit Class Modal -->
+    <div class="modal fade" id="addCreditClassModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-plus me-2"></i>Thêm lớp tín chỉ mới
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="addCreditClassForm">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="creditCode" class="form-label">Mã lớp tín chỉ *</label>
+                            <input type="text" class="form-control" id="creditCode" name="credit_code" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="subjectName" class="form-label">Tên môn học *</label>
+                            <input type="text" class="form-control" id="subjectName" name="subject_name" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="creditTeacher" class="form-label">Giảng viên phụ trách *</label>
+                            <select class="form-select" id="creditTeacher" name="teacher_id" required>
+                                <option value="">Chọn giảng viên</option>
+                                {% for teacher in teacher_options %}
+                                <option value="{{ teacher.id }}">
+                                    {{ teacher.full_name or teacher.teacher_code }}
+                                    {% if teacher.teacher_code %}({{ teacher.teacher_code }}){% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="creditSemester" class="form-label">Học kỳ</label>
+                                    <select class="form-select" id="creditSemester" name="semester">
+                                        <option value="">Chọn học kỳ</option>
+                                        <option value="HK1">Học kỳ 1</option>
+                                        <option value="HK2">Học kỳ 2</option>
+                                        <option value="HK3">Học kỳ 3</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="creditAcademicYear" class="form-label">Năm học</label>
+                                    <input type="text" class="form-control" id="creditAcademicYear" name="academic_year" placeholder="2025-2026">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="creditRoom" class="form-label">Phòng học</label>
+                            <input type="text" class="form-control" id="creditRoom" name="room">
+                        </div>
+                        <div class="mb-3">
+                            <label for="creditNotes" class="form-label">Ghi chú</label>
+                            <textarea class="form-control" id="creditNotes" name="notes" rows="3"></textarea>
+                        </div>
+                        
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-1"></i>Lưu
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Credit Class Modal -->
+    <div class="modal fade" id="editCreditClassModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-edit me-2"></i>Chỉnh sửa lớp tín chỉ
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="editCreditClassForm">
+                    <div class="modal-body">
+                        <input type="hidden" id="editCreditClassId" name="credit_class_id">
+                        <div class="mb-3">
+                            <label for="editCreditCode" class="form-label">Mã lớp tín chỉ *</label>
+                            <input type="text" class="form-control" id="editCreditCode" name="credit_code" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editSubjectName" class="form-label">Tên môn học *</label>
+                            <input type="text" class="form-control" id="editSubjectName" name="subject_name" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editCreditTeacher" class="form-label">Giảng viên phụ trách *</label>
+                            <select class="form-select" id="editCreditTeacher" name="teacher_id" required>
+                                <option value="">Chọn giảng viên</option>
+                                {% for teacher in teacher_options %}
+                                <option value="{{ teacher.id }}">
+                                    {{ teacher.full_name or teacher.teacher_code }}
+                                    {% if teacher.teacher_code %}({{ teacher.teacher_code }}){% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="editCreditSemester" class="form-label">Học kỳ</label>
+                                    <select class="form-select" id="editCreditSemester" name="semester">
+                                        <option value="">Chọn học kỳ</option>
+                                        <option value="HK1">Học kỳ 1</option>
+                                        <option value="HK2">Học kỳ 2</option>
+                                        <option value="HK3">Học kỳ 3</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="editCreditAcademicYear" class="form-label">Năm học</label>
+                                    <input type="text" class="form-control" id="editCreditAcademicYear" name="academic_year">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editCreditRoom" class="form-label">Phòng học</label>
+                            <input type="text" class="form-control" id="editCreditRoom" name="room">
+                        </div>
+                        <div class="mb-3">
+                            <label for="editCreditNotes" class="form-label">Ghi chú</label>
+                            <textarea class="form-control" id="editCreditNotes" name="notes" rows="3"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-1"></i>Cập nhật
                         </button>
                     </div>
                 </form>
@@ -279,10 +446,6 @@
                                     <input type="text" class="form-control" id="editAcademicYear" name="academic_year">
                                 </div>
                             </div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="editTeacherName" class="form-label">Tên giảng viên</label>
-                            <input type="text" class="form-control" id="editTeacherName" name="teacher_name">
                         </div>
                         <div class="mb-3">
                             <label for="editDescription" class="form-label">Mô tả</label>
@@ -342,6 +505,57 @@
                         <div class="mt-3">
                             <h6 class="text-uppercase text-muted">Mô tả</h6>
                             <p id="detailDescription" class="mb-0 text-pre-wrap"></p>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Credit Class Detail Modal -->
+    <div class="modal fade" id="creditClassDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-eye me-2"></i>Thông tin lớp tín chỉ
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="creditClassDetailLoading" class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-2 text-muted">Đang tải dữ liệu...</p>
+                    </div>
+                    <div id="creditClassDetailError" class="alert alert-danger d-none"></div>
+                    <div id="creditClassDetailContent" class="d-none">
+                        <div class="mb-3">
+                            <h4 id="detailCreditSubject" class="mb-0"></h4>
+                            <small class="text-muted">Mã lớp: <span id="detailCreditCode"></span></small>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <div class="border rounded p-3 h-100">
+                                    <h6 class="text-uppercase text-muted">Giảng viên phụ trách</h6>
+                                    <p class="mb-1"><strong id="detailCreditTeacher"></strong></p>
+                                    <p class="mb-1">Học kỳ: <strong id="detailCreditSemester"></strong></p>
+                                    <p class="mb-1">Năm học: <strong id="detailCreditAcademicYear"></strong></p>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="border rounded p-3 h-100">
+                                    <h6 class="text-uppercase text-muted">Thông tin khác</h6>
+                                    <p class="mb-1">Phòng học: <strong id="detailCreditRoom"></strong></p>
+                                    <p class="mb-1">Trạng thái: <strong id="detailCreditStatus"></strong></p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-3">
+                            <h6 class="text-uppercase text-muted">Ghi chú</h6>
+                            <p id="detailCreditNotes" class="mb-0 text-pre-wrap"></p>
                         </div>
                     </div>
                 </div>
@@ -456,12 +670,22 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        const ADMIN_TEACHER_LABEL = 'Không áp dụng';
+        const CREDIT_STATUS_LABELS = {
+            draft: 'Nháp',
+            planned: 'Đang chờ',
+            active: 'Đang diễn ra',
+            completed: 'Đã kết thúc',
+            archived: 'Lưu trữ'
+        };
         const classState = {
             cache: new Map(),
+            creditCache: new Map(),
             modals: {
                 detail: null,
                 students: null,
                 stats: null,
+                creditDetail: null,
             },
         };
 
@@ -477,6 +701,10 @@
             return classState.modals[key];
         }
 
+        function toCacheKey(value) {
+            return value === undefined || value === null ? null : String(value);
+        }
+
         function toggleSection(elementId, show) {
             const el = document.getElementById(elementId);
             if (!el) return;
@@ -489,9 +717,33 @@
             el.textContent = text ?? '';
         }
 
+        function setInputValue(elementId, value) {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+            el.value = value ?? '';
+        }
+
+        function formToJson(form) {
+            const formData = new FormData(form);
+            return Object.fromEntries(formData.entries());
+        }
+
+        function formatCreditStatus(status) {
+            if (!status) return 'Chưa cập nhật';
+            return CREDIT_STATUS_LABELS[status] || status;
+        }
+
+        function getModalInstance(elementId) {
+            if (typeof bootstrap === 'undefined') return null;
+            const el = document.getElementById(elementId);
+            if (!el) return null;
+            return bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
+        }
+
         async function fetchClassDetail(classId, forceReload = false) {
-            if (!forceReload && classState.cache.has(classId)) {
-                return classState.cache.get(classId);
+            const cacheKey = toCacheKey(classId);
+            if (!forceReload && cacheKey && classState.cache.has(cacheKey)) {
+                return classState.cache.get(cacheKey);
             }
             const response = await fetch(`/api/classes/${classId}`);
             if (!response.ok) {
@@ -501,7 +753,9 @@
             if (!payload.success) {
                 throw new Error(payload.message || 'Không thể tải thông tin lớp');
             }
-            classState.cache.set(classId, payload.data);
+            if (cacheKey) {
+                classState.cache.set(cacheKey, payload.data);
+            }
             return payload.data;
         }
 
@@ -516,7 +770,7 @@
                 const data = await fetchClassDetail(classId);
                 setText('detailClassName', data.class_name || 'Không tên');
                 setText('detailClassCode', data.class_code || '-');
-                setText('detailTeacher', data.teacher_name || 'Chưa cập nhật');
+                setText('detailTeacher', ADMIN_TEACHER_LABEL);
                 setText('detailSemester', data.semester || 'N/A');
                 setText('detailAcademicYear', data.academic_year || 'N/A');
                 setText('detailStudentCount', data.student_count ?? (data.students_total || 0));
@@ -537,6 +791,82 @@
             }
         }
 
+        async function fetchCreditClassDetail(creditClassId, forceReload = false) {
+            const cacheKey = toCacheKey(creditClassId);
+            if (!forceReload && cacheKey && classState.creditCache.has(cacheKey)) {
+                return classState.creditCache.get(cacheKey);
+            }
+            const response = await fetch(`/api/credit-classes/${creditClassId}`);
+            if (!response.ok) {
+                throw new Error('Không thể tải thông tin lớp tín chỉ');
+            }
+            const payload = await response.json();
+            if (!payload.success) {
+                throw new Error(payload.message || 'Không thể tải thông tin lớp tín chỉ');
+            }
+            if (cacheKey) {
+                classState.creditCache.set(cacheKey, payload.data);
+            }
+            return payload.data;
+        }
+
+        function populateCreditClassDetail(data) {
+            setText('detailCreditSubject', data.subject_name || 'Không tên');
+            setText('detailCreditCode', data.credit_code || '-');
+            const teacherParts = [];
+            if (data.teacher_name) {
+                teacherParts.push(data.teacher_name);
+            }
+            if (data.teacher_code && data.teacher_code !== data.teacher_name) {
+                teacherParts.push(data.teacher_code);
+            }
+            setText('detailCreditTeacher', teacherParts.join(' · ') || 'Chưa phân công');
+            setText('detailCreditSemester', data.semester || 'N/A');
+            setText('detailCreditAcademicYear', data.academic_year || 'N/A');
+            setText('detailCreditRoom', data.room || 'Chưa cập nhật');
+            setText('detailCreditStatus', formatCreditStatus(data.status));
+            const notesEl = document.getElementById('detailCreditNotes');
+            if (notesEl) {
+                notesEl.textContent = data.notes || 'Chưa có ghi chú.';
+            }
+        }
+
+        async function viewCreditClass(creditClassId) {
+            if (!creditClassId) return;
+            const modal = ensureModal('creditDetail', 'creditClassDetailModal');
+            if (!modal) return;
+            toggleSection('creditClassDetailLoading', true);
+            toggleSection('creditClassDetailContent', false);
+            toggleSection('creditClassDetailError', false);
+            modal.show();
+            try {
+                const data = await fetchCreditClassDetail(creditClassId);
+                populateCreditClassDetail(data);
+                toggleSection('creditClassDetailLoading', false);
+                toggleSection('creditClassDetailContent', true);
+            } catch (error) {
+                console.error(error);
+                toggleSection('creditClassDetailLoading', false);
+                toggleSection('creditClassDetailContent', false);
+                const errEl = document.getElementById('creditClassDetailError');
+                if (errEl) {
+                    errEl.textContent = error.message;
+                }
+                toggleSection('creditClassDetailError', true);
+            }
+        }
+
+        function populateCreditEditForm(data) {
+            setInputValue('editCreditClassId', data.id);
+            setInputValue('editCreditCode', data.credit_code);
+            setInputValue('editSubjectName', data.subject_name);
+            setInputValue('editCreditTeacher', data.teacher_id);
+            setInputValue('editCreditSemester', data.semester);
+            setInputValue('editCreditAcademicYear', data.academic_year);
+            setInputValue('editCreditRoom', data.room);
+            setInputValue('editCreditNotes', data.notes);
+        }
+
         function renderClassStudentsTable(students) {
             const tbody = document.getElementById('classStudentsTable');
             if (!tbody) return;
@@ -553,7 +883,8 @@
             });
         }
 
-        async function showClassStudents(classId) {
+        async function showClassStudents(classId, options = {}) {
+            const { type = 'administrative' } = options;
             const modal = ensureModal('students', 'classStudentsModal');
             if (!modal) return;
             toggleSection('classStudentsLoading', true);
@@ -562,7 +893,10 @@
             toggleSection('classStudentsError', false);
             modal.show();
             try {
-                const response = await fetch(`/api/classes/${classId}/students`);
+                const endpoint = type === 'credit'
+                    ? `/api/teacher/credit-classes/${classId}/students`
+                    : `/api/classes/${classId}/students`;
+                const response = await fetch(endpoint);
                 if (!response.ok) {
                     throw new Error('Không thể tải danh sách sinh viên');
                 }
@@ -570,8 +904,9 @@
                 if (!payload.success) {
                     throw new Error(payload.message || 'Không thể tải danh sách sinh viên');
                 }
-                const students = payload.data || [];
-                setText('classStudentsCounter', `${students.length} sinh viên`);
+                const students = payload.data || payload.students || [];
+                const totalStudents = payload.count ?? students.length;
+                setText('classStudentsCounter', `${totalStudents} sinh viên`);
                 if (!students.length) {
                     toggleSection('classStudentsLoading', false);
                     toggleSection('classStudentsEmpty', true);
@@ -642,6 +977,71 @@
             }
         }
 
+        const addCreditClassForm = document.getElementById('addCreditClassForm');
+        if (addCreditClassForm) {
+            addCreditClassForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const payload = formToJson(addCreditClassForm);
+                try {
+                    const response = await fetch('/api/credit-classes', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(payload),
+                    });
+                    const result = await response.json();
+                    if (!response.ok || !result.success) {
+                        throw new Error(result.message || 'Không thể tạo lớp tín chỉ');
+                    }
+                    const modal = getModalInstance('addCreditClassModal');
+                    if (modal) {
+                        modal.hide();
+                    }
+                    addCreditClassForm.reset();
+                    location.reload();
+                } catch (error) {
+                    console.error(error);
+                    alert('Lỗi: ' + error.message);
+                }
+            });
+        }
+
+        const editCreditClassForm = document.getElementById('editCreditClassForm');
+        if (editCreditClassForm) {
+            editCreditClassForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const payload = formToJson(editCreditClassForm);
+                const creditClassId = payload.credit_class_id || document.getElementById('editCreditClassId').value;
+                delete payload.credit_class_id;
+                try {
+                    const response = await fetch(`/api/credit-classes/${creditClassId}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(payload),
+                    });
+                    const result = await response.json();
+                    if (!response.ok || !result.success) {
+                        throw new Error(result.message || 'Không thể cập nhật lớp tín chỉ');
+                    }
+                    const modal = getModalInstance('editCreditClassModal');
+                    if (modal) {
+                        modal.hide();
+                    }
+                    const cacheKey = toCacheKey(creditClassId);
+                    if (cacheKey) {
+                        classState.creditCache.delete(cacheKey);
+                    }
+                    location.reload();
+                } catch (error) {
+                    console.error(error);
+                    alert('Lỗi: ' + error.message);
+                }
+            });
+        }
+
         // Add Class Form
         document.getElementById('addClassForm').addEventListener('submit', function(e) {
             e.preventDefault();
@@ -705,6 +1105,7 @@
                 const button = e.target.closest('.action-btn');
                 const action = button.getAttribute('data-action');
                 const classId = button.getAttribute('data-class-id');
+                const creditId = button.getAttribute('data-credit-id');
                 
                 switch(action) {
                     case 'view':
@@ -721,6 +1122,26 @@
                         break;
                     case 'delete':
                         deleteClass(classId);
+                        break;
+                    case 'view-credit':
+                        if (creditId) {
+                            viewCreditClass(creditId);
+                        }
+                        break;
+                    case 'students-credit':
+                        if (creditId) {
+                            showClassStudents(creditId, { type: 'credit' });
+                        }
+                        break;
+                    case 'edit-credit':
+                        if (creditId) {
+                            editCreditClass(creditId);
+                        }
+                        break;
+                    case 'delete-credit':
+                        if (creditId) {
+                            deleteCreditClass(creditId);
+                        }
                         break;
                 }
             }
@@ -739,7 +1160,6 @@
                     document.getElementById('editClassName').value = classData.class_name;
                     document.getElementById('editSemester').value = classData.semester || '';
                     document.getElementById('editAcademicYear').value = classData.academic_year || '';
-                    document.getElementById('editTeacherName').value = classData.teacher_name || '';
                     document.getElementById('editDescription').value = classData.description || '';
                     
                     new bootstrap.Modal(document.getElementById('editClassModal')).show();
@@ -749,6 +1169,21 @@
                 console.error('Error:', error);
                 alert('Có lỗi xảy ra khi tải thông tin lớp học');
             });
+        }
+
+        async function editCreditClass(creditClassId) {
+            if (!creditClassId) return;
+            try {
+                const data = await fetchCreditClassDetail(creditClassId, true);
+                populateCreditEditForm(data);
+                const modal = getModalInstance('editCreditClassModal');
+                if (modal) {
+                    modal.show();
+                }
+            } catch (error) {
+                console.error(error);
+                alert('Có lỗi xảy ra khi tải thông tin lớp tín chỉ');
+            }
         }
 
         function deleteClass(classId) {
@@ -768,6 +1203,30 @@
                     console.error('Error:', error);
                     alert('Có lỗi xảy ra khi xóa lớp học');
                 });
+            }
+
+            async function deleteCreditClass(creditClassId) {
+                if (!creditClassId) return;
+                if (!confirm('Bạn có chắc chắn muốn xóa lớp tín chỉ này?')) {
+                    return;
+                }
+                try {
+                    const response = await fetch(`/api/credit-classes/${creditClassId}`, {
+                        method: 'DELETE'
+                    });
+                    const result = await response.json();
+                    if (!response.ok || !result.success) {
+                        throw new Error(result.message || 'Không thể xóa lớp tín chỉ');
+                    }
+                    const cacheKey = toCacheKey(creditClassId);
+                    if (cacheKey) {
+                        classState.creditCache.delete(cacheKey);
+                    }
+                    location.reload();
+                } catch (error) {
+                    console.error(error);
+                    alert('Có lỗi xảy ra khi xóa lớp tín chỉ: ' + error.message);
+                }
             }
         }
     </script>

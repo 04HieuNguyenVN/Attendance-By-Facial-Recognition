@@ -118,7 +118,9 @@ class MainApp {
   constructor() {
     this.sse = null;
     this.webcamStream = null;
-    this.capturedImageData = null;
+    this.capturedImages = [];
+    this.requiredFaceSamples = 3;
+    this.maxCapturedImages = 12;
     this.refreshIntervalId = null;
     this.detailModal = null;
     this.detailModalEl = null;
@@ -372,9 +374,12 @@ class MainApp {
     ) {
       const message =
         eventPacket.type === "attendance_checkout"
-          ? "Bạn đã checkout thành công."
-          : "Bạn đã điểm danh thành công.";
-      this.stopStudentCamera(message);
+          ? "Bạn đã checkout thành công. Camera vẫn đang hoạt động để bạn có thể tiếp tục phiên."
+          : "Bạn đã điểm danh thành công. Camera sẽ tiếp tục chạy để bạn có thể checkout hoặc thực hiện thao tác khác.";
+      this.showStudentSessionAlert(message, false, false, true);
+      this.setStudentSessionHint(
+        "Giữ khuôn mặt trong khung hoặc nhấn Tắt camera nếu bạn muốn kết thúc."
+      );
     }
   }
 
@@ -455,15 +460,21 @@ class MainApp {
     const quickRegisterModal = new bootstrap.Modal(modalEl);
     const quickRegisterBtn = document.getElementById("quick-register-btn");
     const startWebcamBtn = document.getElementById("start-webcam-btn");
+    const stopWebcamBtn = document.getElementById("stop-webcam-btn");
     const captureBtn = document.getElementById("capture-btn");
     const retakeBtn = document.getElementById("retake-btn");
     const submitBtn = document.getElementById("submit-register-btn");
+    const fileInput = document.getElementById("reg-face-images");
+    const capturedList = document.getElementById("captured-images-list");
+
     if (
       !quickRegisterBtn ||
       !startWebcamBtn ||
       !captureBtn ||
       !retakeBtn ||
-      !submitBtn
+      !submitBtn ||
+      !fileInput ||
+      !capturedList
     ) {
       return;
     }
@@ -471,6 +482,8 @@ class MainApp {
     quickRegisterBtn.addEventListener("click", () => quickRegisterModal.show());
     modalEl.addEventListener("show.bs.modal", () => {
       this.populateQuickRegisterClassOptions();
+      this.updateCapturedImagesUI();
+      this.toggleRegisterCameraUI(false);
     });
     this.populateQuickRegisterClassOptions();
 
@@ -479,39 +492,67 @@ class MainApp {
         this.webcamStream = await navigator.mediaDevices.getUserMedia({
           video: { width: 320, height: 240 },
         });
-        document.getElementById("webcam-preview").srcObject = this.webcamStream;
         this.toggleRegisterCameraUI(true);
       } catch (error) {
         alert("Không thể truy cập camera. Lỗi: " + error.message);
       }
     });
 
+    if (stopWebcamBtn) {
+      stopWebcamBtn.addEventListener("click", () => this.stopWebcam());
+    }
+
     captureBtn.addEventListener("click", () => {
+      if (!this.webcamStream) {
+        alert("Vui lòng bật camera trước khi chụp.");
+        return;
+      }
+      if (this.capturedImages.length >= this.maxCapturedImages) {
+        alert(
+          `Bạn chỉ có thể lưu tối đa ${this.maxCapturedImages} ảnh chụp trực tiếp mỗi lần.`
+        );
+        return;
+      }
       const canvas = document.getElementById("capture-canvas");
       const video = document.getElementById("webcam-preview");
       const context = canvas.getContext("2d");
       canvas.width = 320;
       canvas.height = 240;
       context.drawImage(video, 0, 0, 320, 240);
-      this.capturedImageData = canvas.toDataURL("image/jpeg");
-      document.getElementById("captured-image").src = this.capturedImageData;
-      this.stopWebcam();
-      this.toggleRegisterCameraUI(false, true);
+      this.capturedImages.push(canvas.toDataURL("image/jpeg"));
+      this.updateCapturedImagesUI();
     });
 
-    retakeBtn.addEventListener("click", () => {
-      this.capturedImageData = null;
-      this.toggleRegisterCameraUI(false);
+    retakeBtn.addEventListener("click", () => this.clearCapturedImages());
+    fileInput.addEventListener("change", () => this.updateCapturedImagesUI());
+    capturedList.addEventListener("click", (event) => {
+      const removeBtn = event.target.closest(".remove-capture");
+      if (!removeBtn) {
+        return;
+      }
+      const index = Number(removeBtn.dataset.index);
+      if (!Number.isNaN(index)) {
+        this.capturedImages.splice(index, 1);
+        this.updateCapturedImagesUI();
+      }
     });
 
     submitBtn.addEventListener("click", async () => {
       const form = document.getElementById("quickRegisterForm");
       const formData = new FormData(form);
       const resultDiv = document.getElementById("register-result");
+      const totalSamples = this.getTotalPreparedSamples();
 
-      if (this.capturedImageData) {
-        formData.append("image_data", this.capturedImageData);
+      if (totalSamples < this.requiredFaceSamples) {
+        if (resultDiv) {
+          resultDiv.innerHTML = `<div class="alert alert-warning">Cần tối thiểu ${this.requiredFaceSamples} ảnh khuôn mặt (đã có ${totalSamples}).</div>`;
+        }
+        return;
       }
+
+      this.capturedImages.forEach((imageData, idx) => {
+        formData.append(`image_data_${idx}`, imageData);
+      });
 
       submitBtn.disabled = true;
       submitBtn.innerHTML =
@@ -524,13 +565,15 @@ class MainApp {
         });
         const data = await response.json();
         if (response.ok && data.success) {
-          resultDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+          if (resultDiv) {
+            resultDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+          }
 
           const resetFormState = () => {
-            form.reset();
-            this.capturedImageData = null;
-            this.toggleRegisterCameraUI(false);
-            resultDiv.innerHTML = "";
+            this.resetQuickRegisterState();
+            if (resultDiv) {
+              resultDiv.innerHTML = "";
+            }
           };
 
           const finishAndReload = () => {
@@ -555,20 +598,25 @@ class MainApp {
           } else {
             setTimeout(finishAndReload, 1500);
           }
-        } else {
+        } else if (resultDiv) {
           resultDiv.innerHTML = `<div class="alert alert-danger">${
             data.error || "Đăng ký thất bại"
           }</div>`;
         }
       } catch (error) {
-        resultDiv.innerHTML = `<div class="alert alert-danger">Lỗi: ${error.message}</div>`;
+        if (resultDiv) {
+          resultDiv.innerHTML = `<div class="alert alert-danger">Lỗi: ${error.message}</div>`;
+        }
       } finally {
         submitBtn.disabled = false;
         submitBtn.innerHTML = '<i class="fas fa-save me-1"></i>Đăng ký';
       }
     });
 
-    modalEl.addEventListener("hidden.bs.modal", () => this.stopWebcam());
+    modalEl.addEventListener("hidden.bs.modal", () => {
+      this.stopWebcam();
+      this.resetQuickRegisterState();
+    });
   }
 
   async loadClassOptions(forceReload = false) {
@@ -628,29 +676,118 @@ class MainApp {
     });
   }
 
-  toggleRegisterCameraUI(isStreaming, isCaptured = false) {
-    document.getElementById("webcam-preview").style.display = isStreaming
-      ? "block"
-      : "none";
-    document.getElementById("camera-placeholder").style.display =
-      !isStreaming && !isCaptured ? "flex" : "none";
-    document.getElementById("captured-image").style.display = isCaptured
-      ? "block"
-      : "none";
-    document.getElementById("start-webcam-btn").style.display =
-      !isStreaming && !isCaptured ? "block" : "none";
-    document.getElementById("capture-btn").style.display = isStreaming
-      ? "block"
-      : "none";
-    document.getElementById("retake-btn").style.display = isCaptured
-      ? "block"
-      : "none";
+  toggleRegisterCameraUI(isStreaming) {
+    const videoEl = document.getElementById("webcam-preview");
+    const placeholder = document.getElementById("camera-placeholder");
+    const startBtn = document.getElementById("start-webcam-btn");
+    const captureBtn = document.getElementById("capture-btn");
+    const stopBtn = document.getElementById("stop-webcam-btn");
+
+    if (videoEl) {
+      videoEl.classList.toggle("d-none", !isStreaming);
+      if (isStreaming && this.webcamStream) {
+        videoEl.srcObject = this.webcamStream;
+      } else if (!isStreaming) {
+        videoEl.srcObject = null;
+      }
+    }
+    if (placeholder) {
+      placeholder.style.display = isStreaming ? "none" : "flex";
+    }
+    if (startBtn) {
+      startBtn.classList.toggle("d-none", isStreaming);
+    }
+    if (captureBtn) {
+      captureBtn.classList.toggle("d-none", !isStreaming);
+      captureBtn.disabled = !isStreaming;
+    }
+    if (stopBtn) {
+      stopBtn.classList.toggle("d-none", !isStreaming);
+    }
   }
 
   stopWebcam() {
     if (this.webcamStream) {
       this.webcamStream.getTracks().forEach((track) => track.stop());
       this.webcamStream = null;
+    }
+    this.toggleRegisterCameraUI(false);
+  }
+
+  getUploadedFileCount() {
+    const fileInput = document.getElementById("reg-face-images");
+    return fileInput && fileInput.files ? fileInput.files.length : 0;
+  }
+
+  getTotalPreparedSamples() {
+    return this.capturedImages.length + this.getUploadedFileCount();
+  }
+
+  clearCapturedImages() {
+    this.capturedImages = [];
+    this.updateCapturedImagesUI();
+  }
+
+  resetQuickRegisterState() {
+    const form = document.getElementById("quickRegisterForm");
+    if (form) {
+      form.reset();
+    }
+    this.clearCapturedImages();
+    const fileInput = document.getElementById("reg-face-images");
+    if (fileInput) {
+      fileInput.value = "";
+    }
+    const resultDiv = document.getElementById("register-result");
+    if (resultDiv) {
+      resultDiv.innerHTML = "";
+    }
+    this.toggleRegisterCameraUI(false);
+  }
+
+  updateCapturedImagesUI() {
+    const listEl = document.getElementById("captured-images-list");
+    const counterEl = document.getElementById("capture-counter");
+    const retakeBtn = document.getElementById("retake-btn");
+    const totalSamples = this.getTotalPreparedSamples();
+
+    if (listEl) {
+      listEl.innerHTML = "";
+      this.capturedImages.forEach((imageData, idx) => {
+        const col = document.createElement("div");
+        col.className = "col-4";
+        col.innerHTML = `
+          <div class="captured-thumb border">
+            <img src="${imageData}" class="img-fluid" alt="Ảnh ${idx + 1}">
+            <button type="button" class="btn btn-sm btn-danger remove-capture" data-index="${idx}" aria-label="Xóa ảnh ${
+          idx + 1
+        }">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+        `;
+        listEl.appendChild(col);
+      });
+    }
+
+    if (counterEl) {
+      if (totalSamples > 0) {
+        counterEl.textContent = `Đã chuẩn bị ${totalSamples}/${
+          this.requiredFaceSamples
+        } ảnh (camera: ${
+          this.capturedImages.length
+        }, file: ${this.getUploadedFileCount()}).`;
+      } else {
+        counterEl.textContent = `Cần tối thiểu ${this.requiredFaceSamples} ảnh khuôn mặt rõ nét.`;
+      }
+      counterEl.classList.toggle(
+        "text-danger",
+        totalSamples < this.requiredFaceSamples
+      );
+    }
+
+    if (retakeBtn) {
+      retakeBtn.classList.toggle("d-none", this.capturedImages.length === 0);
     }
   }
 
@@ -1538,7 +1675,12 @@ class MainApp {
     }
   }
 
-  showStudentSessionAlert(message = "", isError = false, hide = false) {
+  showStudentSessionAlert(
+    message = "",
+    isError = false,
+    hide = false,
+    isSuccess = false
+  ) {
     if (!this.studentSessionAlert) {
       return;
     }
@@ -1546,14 +1688,18 @@ class MainApp {
     if (hide || !message) {
       alertEl.classList.add("d-none");
       alertEl.textContent = "";
-      alertEl.classList.remove("alert-danger", "alert-info");
+      alertEl.classList.remove("alert-danger", "alert-info", "alert-success");
       alertEl.classList.add("alert-info");
       return;
     }
     alertEl.textContent = message;
     alertEl.classList.remove("d-none");
-    alertEl.classList.remove("alert-danger", "alert-info");
-    alertEl.classList.add(isError ? "alert-danger" : "alert-info");
+    alertEl.classList.remove("alert-danger", "alert-info", "alert-success");
+    if (isSuccess) {
+      alertEl.classList.add("alert-success");
+    } else {
+      alertEl.classList.add(isError ? "alert-danger" : "alert-info");
+    }
   }
 
   setStudentSessionHint(message = "") {

@@ -1,7 +1,7 @@
-"""DeepFace-based face database and recognition utilities.
+"""Các tiện ích cơ sở dữ liệu khuôn mặt và nhận diện dựa trên DeepFace.
 
-This module is adapted from Cong-Nghe-Xu-Ly-Anh/diemdanh_deepface_gui.py
-but integrated for the main Flask application.
+Module này được điều chỉnh từ Cong-Nghe-Xu-Ly-Anh/diemdanh_deepface_gui.py
+nhưng được tích hợp cho ứng dụng Flask chính.
 """
 
 import os
@@ -22,12 +22,36 @@ except ImportError:
     logger.warning("DeepFace không khả dụng trong môi trường hiện tại.")
 
 
+RESERVED_DATA_SUBDIRS = {'training_samples', 'models', 'external_assets'}
+
+
+def _iter_sample_images(data_path: Path) -> List[Path]:
+    allowed_suffixes = {'.jpg', '.jpeg', '.png'}
+    files: List[Path] = []
+    if not data_path.exists():
+        return files
+
+    for entry in data_path.iterdir():
+        if entry.is_file() and entry.suffix.lower() in allowed_suffixes:
+            files.append(entry)
+            continue
+
+        if not entry.is_dir() or entry.name in RESERVED_DATA_SUBDIRS:
+            continue
+
+        for sub_path in entry.rglob('*'):
+            if sub_path.is_file() and sub_path.suffix.lower() in allowed_suffixes:
+                files.append(sub_path)
+
+    return files
+
+
 def build_db_from_data_dir(
     data_dir: str = "data",
     model_name: str = "Facenet512",
-    enforce_detection: bool = True,
+    enforce_detection: bool = False,
 ) -> Tuple[np.ndarray, List[Tuple[str, str]]]:
-    """Load all sample images from data_dir and compute embeddings.
+    """Tải tất cả ảnh mẫu từ data_dir và tính toán embeddings.
 
     Ảnh mẫu nên đặt trong thư mục `data/` với tên dạng:
         <ID>_<Name>.jpg  (ví dụ: 1912345_NguyenVanA.jpg)
@@ -48,25 +72,35 @@ def build_db_from_data_dir(
         logger.error("[DeepFaceDB] DeepFace không khả dụng, không thể build DB.")
         return np.array([]), []
 
-    image_files = list(data_path.glob("*.jpg")) + list(data_path.glob("*.jpeg")) + list(data_path.glob("*.png"))
+    image_files = _iter_sample_images(data_path)
     logger.info("[DeepFaceDB] Bắt đầu build DB từ %s, tìm thấy %d file ảnh.", data_dir, len(image_files))
 
     for img_path in image_files:
         try:
             filename = img_path.stem
+            try:
+                relative_parts = img_path.relative_to(data_path).parts
+            except ValueError:
+                relative_parts = ()
+
+            student_id = None
+            name = None
+
+            if len(relative_parts) > 1 and relative_parts[0] not in RESERVED_DATA_SUBDIRS:
+                student_id = relative_parts[0]
+
             # Ưu tiên pattern: ID_Name...
             match = re.match(r"^(\d+)_([A-Za-zÀ-ỹA-Z\s_]+)", filename)
             if match:
-                student_id = match.group(1)
+                student_id = student_id or match.group(1)
                 name = match.group(2).replace("_", " ").strip()
             else:
-                # Fallback: tách bằng underscore, phần đầu là ID
                 parts = filename.split("_")
                 if len(parts) >= 2:
-                    student_id = parts[0]
+                    student_id = student_id or parts[0]
                     name = " ".join(parts[1:])
                 else:
-                    student_id = filename
+                    student_id = student_id or filename
                     name = filename
 
             logger.debug(

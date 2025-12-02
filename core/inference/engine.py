@@ -1,8 +1,8 @@
-"""Reusable AI inference engine abstractions.
+"""Các trừu tượng hóa engine suy luận AI có thể tái sử dụng.
 
-This module centralizes DeepFace/FaceNet/fallback recognition logic so the Flask
-app can treat AI inference as a stateful service instead of scattering global
-variables across routes.
+Module này tập trung logic nhận diện DeepFace/FaceNet/dự phòng để ứng dụng Flask
+có thể coi suy luận AI như một dịch vụ có trạng thái thay vì phân tán các biến
+toàn cục khắp các route.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ LabelList = List[Tuple[str, str]]
 
 
 class InferenceError(RuntimeError):
-    """Raised when an inference strategy cannot complete."""
+    """Được ném ra khi một chiến lược suy luận không thể hoàn thành."""
 
 
 @dataclass
@@ -41,7 +41,7 @@ class InferenceResult:
 
 
 class EmbeddingStore:
-    """Thread-safe holder for embeddings and labels."""
+    """Trình chứa an toàn luồng cho embeddings và nhãn."""
 
     def __init__(self) -> None:
         self._embeddings: EmbeddingArray = None
@@ -81,7 +81,7 @@ class EmbeddingStore:
 
 
 class RecognitionStrategy:
-    """Protocol-ish base class for duck-typed strategies."""
+    """Lớp cơ sở kiểu giao thức cho các chiến lược duck-typed."""
 
     name: str = "strategy"
 
@@ -126,15 +126,15 @@ class DeepFaceStrategy(RecognitionStrategy):
 
     def warmup(self, force: bool = False) -> None:
         if self._deepface is None or self._build_db is None:
-            raise InferenceError("DeepFace dependencies are missing")
+            raise InferenceError("Thiếu các phụ thuộc DeepFace")
         if not force and self._store.ready():
             return
         embeddings, labels = self._build_db(str(self._data_dir))
         if embeddings is None or len(embeddings) == 0:
-            raise InferenceError("No DeepFace embeddings available")
+            raise InferenceError("Không có DeepFace embeddings nào khả dụng")
         self._store.update(np.array(embeddings, dtype="float32"), labels)
         self._logger.info(
-            "[Inference] DeepFace store ready: %d embeddings", self._store.count()
+            "[Inference] Kho DeepFace đã sẵn sàng: %d embeddings", self._store.count()
         )
 
     def identify(self, face_image: np.ndarray) -> InferenceResult:
@@ -142,7 +142,7 @@ class DeepFaceStrategy(RecognitionStrategy):
             self.warmup()
         embeddings, labels = self._store.snapshot()
         if embeddings is None or not labels:
-            raise InferenceError("DeepFace store is empty")
+            raise InferenceError("Kho DeepFace đang trống")
         try:
             representation = self._deepface.represent(  # type: ignore[attr-defined]
                 face_image,
@@ -150,7 +150,7 @@ class DeepFaceStrategy(RecognitionStrategy):
                 enforce_detection=self._enforce_detection,
             )[0]["embedding"]
         except Exception as exc:  # pragma: no cover - DeepFace errors runtime dependent
-            raise InferenceError(f"DeepFace failed to create embedding: {exc}") from exc
+            raise InferenceError(f"DeepFace thất bại khi tạo embedding: {exc}") from exc
         embedding_vec = np.array(representation, dtype="float32")
         student_id, student_name, score = self._recognize(
             embedding_vec,
@@ -192,15 +192,15 @@ class FaceNetStrategy(RecognitionStrategy):
 
     def warmup(self, force: bool = False) -> None:
         if self._service is None:
-            raise InferenceError("FaceNet service missing")
+            raise InferenceError("Thiếu dịch vụ FaceNet")
         if hasattr(self._service, "load_model"):
             self._service.load_model()
 
     def identify(self, face_image: np.ndarray) -> InferenceResult:
         if self._service is None:
-            raise InferenceError("FaceNet service missing")
+            raise InferenceError("Thiếu dịch vụ FaceNet")
         if cv2 is None:
-            raise InferenceError("OpenCV not available for FaceNet preprocessing")
+            raise InferenceError("OpenCV không khả dụng cho tiền xử lý FaceNet")
         self.warmup()
         rgb = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
         preprocessed = self._service.preprocess_face(rgb)
@@ -212,7 +212,7 @@ class FaceNetStrategy(RecognitionStrategy):
             try:
                 name = self._label_lookup(student_id)
             except Exception as exc:  # pragma: no cover - DB errors depend on runtime
-                self._logger.debug("Label lookup failed for %s: %s", student_id, exc)
+                self._logger.debug("Tra cứu nhãn thất bại cho %s: %s", student_id, exc)
         return InferenceResult(
             student_id=student_id if status == "match" else None,
             student_name=name,
@@ -228,7 +228,7 @@ class FaceNetStrategy(RecognitionStrategy):
 
 
 class InferenceEngine:
-    """High-level orchestrator picking the first successful strategy."""
+    """Trình điều phối cấp cao chọn chiến lược thành công đầu tiên."""
 
     def __init__(self, *, logger: Optional[logging.Logger] = None, demo_mode: bool = False) -> None:
         self._logger = logger or logging.getLogger(__name__)
@@ -240,7 +240,7 @@ class InferenceEngine:
     def add_strategy(self, strategy: Optional[RecognitionStrategy]) -> None:
         if strategy is None:
             return
-        self._logger.info("[Inference] Added strategy %s", strategy.name)
+        self._logger.info("[Inference] Đã thêm chiến lược %s", strategy.name)
         self._strategies.append(strategy)
 
     def ready(self) -> bool:
@@ -259,10 +259,10 @@ class InferenceEngine:
                     return result
             except InferenceError as exc:
                 last_error = exc
-                self._logger.debug("Strategy %s failed: %s", strategy.name, exc)
+                self._logger.debug("Chiến lược %s thất bại: %s", strategy.name, exc)
             except Exception as exc:  # pragma: no cover - depends on runtime libs
                 last_error = exc
-                self._logger.exception("Strategy %s crashed", strategy.name)
+                self._logger.exception("Chiến lược %s bị lỗi (crashed)", strategy.name)
         if self._demo_mode:
             sid, name = self._demo_subjects[0]
             return InferenceResult(
@@ -272,16 +272,16 @@ class InferenceEngine:
                 strategy="demo",
                 status="demo",
             )
-        raise InferenceError(str(last_error) if last_error else "No inference strategy succeeded")
+        raise InferenceError(str(last_error) if last_error else "Không có chiến lược suy luận nào thành công")
 
     def warmup(self, force: bool = False) -> None:
         for strategy in self._strategies:
             try:
                 strategy.warmup(force=force)
             except InferenceError as exc:
-                self._logger.warning("Strategy %s warmup error: %s", strategy.name, exc)
+                self._logger.warning("Lỗi khởi động chiến lược %s: %s", strategy.name, exc)
             except Exception as exc:  # pragma: no cover - depends on runtime libs
-                self._logger.exception("Strategy %s warmup crashed", strategy.name)
+                self._logger.exception("Khởi động chiến lược %s bị lỗi (crashed)", strategy.name)
 
     def reload(self) -> Dict[str, Any]:
         summary: Dict[str, Any] = {"strategies": []}

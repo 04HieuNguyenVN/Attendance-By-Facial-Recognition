@@ -17,6 +17,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / 'data'
+RESERVED_DATA_SUBDIRS = {'training_samples', 'models', 'external_assets'}
 
 # Try to import FaceRecognitionService
 face_service = None
@@ -42,12 +43,31 @@ except Exception as e:
 
 def load_images(data_dir):
     imgs = []
-    for p in sorted(data_dir.glob('*.jpg')):
-        name = p.stem
-        # expect studentid_name.jpg or similar
-        parts = name.split('_')
+    allowed_suffixes = {'.jpg', '.jpeg', '.png'}
+    if not data_dir.exists():
+        return imgs
+
+    def append_image(path: Path):
+        name = path.stem
+        parts = name.split('_') if name else []
         student_id = parts[0] if len(parts) > 1 else name
-        imgs.append({'path': str(p), 'student_id': student_id, 'filename': p.name})
+        try:
+            relative_parts = path.relative_to(data_dir).parts
+        except ValueError:
+            relative_parts = ()
+        if len(relative_parts) > 1 and relative_parts[0] not in RESERVED_DATA_SUBDIRS:
+            student_id = relative_parts[0]
+        imgs.append({'path': str(path), 'student_id': student_id, 'filename': path.name})
+
+    for entry in sorted(data_dir.iterdir()):
+        if entry.is_file() and entry.suffix.lower() in allowed_suffixes:
+            append_image(entry)
+            continue
+        if not entry.is_dir() or entry.name in RESERVED_DATA_SUBDIRS:
+            continue
+        for sub_path in sorted(entry.rglob('*')):
+            if sub_path.is_file() and sub_path.suffix.lower() in allowed_suffixes:
+                append_image(sub_path)
     return imgs
 
 

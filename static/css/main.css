@@ -510,6 +510,26 @@ body {
   margin: 0 auto;
 }
 
+.captured-thumb {
+  position: relative;
+  border-radius: var(--border-radius);
+  overflow: hidden;
+}
+
+.captured-thumb img {
+  width: 100%;
+  display: block;
+}
+
+.captured-thumb .remove-capture {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  border-radius: 999px;
+  padding: 0.15rem 0.4rem;
+  line-height: 1;
+}
+
 .attendance-toast {
   position: fixed;
   top: 80px;

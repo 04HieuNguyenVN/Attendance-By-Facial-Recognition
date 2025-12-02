@@ -1,6 +1,6 @@
-"""Presence tracker helper.
+"""Trình hỗ trợ theo dõi sự hiện diện.
 
-Tracks last-seen timestamps and accumulated presence time per student for a session.
+Theo dõi dấu thời gian xuất hiện lần cuối và thời gian hiện diện tích lũy của mỗi sinh viên trong một phiên.
 """
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -9,7 +9,7 @@ import csv
 
 class PresenceTracker:
     def __init__(self):
-        # name -> {'last_seen': datetime, 'total_seconds': int}
+        # tên -> {'last_seen': datetime, 'total_seconds': int}
         self._data = {}
         self._session_start = datetime.now()
 
@@ -20,13 +20,13 @@ class PresenceTracker:
         if rec is None:
             self._data[name] = {'last_seen': seen_time, 'total_seconds': 0}
             return
-        # compute delta since last seen, but only add if gap is small (continuous presence)
+        # tính toán delta kể từ lần cuối xuất hiện, nhưng chỉ cộng nếu khoảng cách nhỏ (hiện diện liên tục)
         last = rec['last_seen']
         delta = (seen_time - last).total_seconds()
         if delta < 120:
-            # consider continuous presence; add delta
+            # xem xét là hiện diện liên tục; cộng delta
             rec['total_seconds'] += int(delta)
-        # update last seen
+        # cập nhật lần cuối xuất hiện
         rec['last_seen'] = seen_time
 
     def get_summary(self):

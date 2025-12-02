@@ -4,12 +4,9 @@ Quản lý cơ sở dữ liệu SQLite cho hệ thống điểm danh
 """
 
 import sqlite3
-import os
-import csv
 import secrets
 import string
 from datetime import datetime, date
-from pathlib import Path
 import logging
 
 from werkzeug.security import generate_password_hash
@@ -166,26 +163,6 @@ class DatabaseManager:
                 )
             ''')
 
-            # Lưu lại thông tin tài khoản/mật khẩu đã cấp phát
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS generated_account_credentials (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER,
-                    username VARCHAR(50) NOT NULL,
-                    full_name VARCHAR(100),
-                    role VARCHAR(20),
-                    owner_type VARCHAR(20),
-                    owner_identifier VARCHAR(50),
-                    plain_password VARCHAR(255) NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    exported BOOLEAN DEFAULT 0,
-                    notes TEXT,
-                    FOREIGN KEY (user_id) REFERENCES users(id)
-                )
-            ''')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_credentials_user ON generated_account_credentials(user_id)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_credentials_username ON generated_account_credentials(username)')
-            
             # Bảng lưu nhiều ảnh mẫu của sinh viên (cho AI training)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS student_face_samples (
@@ -280,6 +257,9 @@ class DatabaseManager:
             # Tạo teacher mặc định
             self._create_default_teacher(cursor)
 
+            # Bổ sung tài khoản giảng viên dùng để thử nghiệm
+            self._ensure_demo_teacher_account(cursor)
+
             # Tạo student mặc định (để test frontend)
             self._create_default_student_user(cursor)
             
@@ -324,6 +304,38 @@ class DatabaseManager:
             INSERT OR IGNORE INTO users (username, password_hash, full_name, role, email)
             VALUES (?, ?, ?, ?, ?)
         ''', ('teacher', default_password, 'Giáo viên', 'teacher', 'teacher@example.com'))
+
+    def _ensure_demo_teacher_account(self, cursor):
+        """Đảm bảo có sẵn một giảng viên mẫu gắn với tài khoản đăng nhập."""
+        import hashlib
+        demo_username = 'teacher.demo'
+        demo_password = 'teacherDemo123'
+        teacher_code = 'GVTEST01'
+
+        cursor.execute('SELECT id FROM users WHERE username = ? AND is_active = 1', (demo_username,))
+        row = cursor.fetchone()
+        if row:
+            user_id = row['id'] if isinstance(row, sqlite3.Row) else row[0]
+        else:
+            password_hash = hashlib.sha256(demo_password.encode()).hexdigest()
+            cursor.execute('''
+                INSERT INTO users (username, password_hash, full_name, role, email)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (demo_username, password_hash, 'Giảng viên thử nghiệm', 'teacher', 'teacher.demo@example.com'))
+            user_id = cursor.lastrowid
+
+        cursor.execute('SELECT id, user_id FROM teachers WHERE teacher_code = ?', (teacher_code,))
+        teacher_row = cursor.fetchone()
+        if teacher_row:
+            teacher_id = teacher_row['id'] if isinstance(teacher_row, sqlite3.Row) else teacher_row[0]
+            current_user_id = teacher_row['user_id'] if isinstance(teacher_row, sqlite3.Row) else teacher_row[1]
+            if current_user_id != user_id:
+                cursor.execute('UPDATE teachers SET user_id = ?, is_active = 1 WHERE id = ?', (user_id, teacher_id))
+        else:
+            cursor.execute('''
+                INSERT INTO teachers (teacher_code, full_name, email, phone, department, user_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (teacher_code, 'Giảng viên thử nghiệm', 'teacher.demo@example.com', '0900000000', 'CNTT', user_id))
 
     def _create_default_student_user(self, cursor):
         """Tạo tài khoản sinh viên mặc định để thử nghiệm UI."""
@@ -448,7 +460,7 @@ class DatabaseManager:
             )
 
     def _generate_class_code(self, class_name, attempt=0):
-        """Generate a normalized class code with optional suffix for uniqueness."""
+        """Tạo mã lớp chuẩn hóa với hậu tố tùy chọn để đảm bảo tính duy nhất."""
         normalized = ''.join(ch for ch in class_name if ch.isalnum()) or 'CLASS'
         normalized = normalized.upper()
         if attempt <= 0:
@@ -458,7 +470,7 @@ class DatabaseManager:
         return (normalized[:prefix_length] + suffix)[:20]
 
     def _get_or_create_class(self, cursor, class_name):
-        """Find existing class_id by name or create a new class entry."""
+        """Tìm class_id hiện có theo tên hoặc tạo mục lớp mới."""
         if class_name is None:
             return None
         trimmed = class_name.strip()
@@ -484,9 +496,26 @@ class DatabaseManager:
                 attempt += 1
 
         raise ValueError(f"Không thể tạo lớp học mới cho {trimmed}")
+
+    def _generate_unique_teacher_code(self, cursor, base_code: str, fallback_id: int = None) -> str:
+        """Sinh mã giảng viên duy nhất dựa trên username hoặc fallback."""
+        normalized = ''.join(ch for ch in (base_code or '') if ch.isalnum()).upper()
+        if not normalized:
+            normalized = f"GV{fallback_id or int(datetime.now().timestamp())}"
+        normalized = normalized[:15] or 'GV'
+
+        for attempt in range(50):
+            suffix = '' if attempt == 0 else f"{attempt:02d}"
+            candidate = f"{normalized}{suffix}"[:20]
+            cursor.execute('SELECT 1 FROM teachers WHERE teacher_code = ?', (candidate,))
+            if not cursor.fetchone():
+                return candidate
+
+        return f"GV{fallback_id or int(datetime.now().timestamp())}"
     
     # === QUẢN LÝ SINH VIÊN ===
-    def add_student(self, student_id, full_name, email=None, phone=None, class_name=None, face_image_path=None):
+    def add_student(self, student_id, full_name, email=None, phone=None, class_name=None,
+                    face_image_path=None, face_encoding=None):
         """Thêm sinh viên mới và tự tạo tài khoản đăng nhập nếu cần."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
@@ -495,12 +524,13 @@ class DatabaseManager:
                 if class_name:
                     class_id = self._get_or_create_class(cursor, class_name)
 
+                encoding_blob = sqlite3.Binary(face_encoding) if face_encoding is not None else None
                 cursor.execute(
                     '''
-                    INSERT INTO students (student_id, full_name, email, phone, class_id, face_image_path)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO students (student_id, full_name, email, phone, class_id, face_encoding, face_image_path)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     ''',
-                    (student_id, full_name, email, phone, class_id, face_image_path),
+                    (student_id, full_name, email, phone, class_id, encoding_blob, face_image_path),
                 )
                 credentials = self._ensure_student_account(cursor, student_id, full_name, email)
                 conn.commit()
@@ -552,82 +582,14 @@ class DatabaseManager:
             (user_id, student_id),
         )
 
-        credentials = {
+        return {
             'student_id': student_id,
             'full_name': full_name,
             'username': username,
             'password': plain_password,
             'user_id': user_id,
             'role': 'student',
-            'owner_type': 'student',
-            'owner_identifier': student_id,
         }
-        self._append_generated_credentials([credentials], owner_type='student')
-        return credentials
-
-    def _append_generated_credentials(self, rows, owner_type='student'):
-        if not rows:
-            return
-
-        data_dir = Path('data')
-        data_dir.mkdir(exist_ok=True)
-        timestamp = datetime.now().strftime('%Y%m%d')
-        output_path = data_dir / f'generated_credentials_{timestamp}.csv'
-        new_file = not output_path.exists()
-        try:
-            with output_path.open('a', newline='', encoding='utf-8') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=['student_id', 'full_name', 'username', 'password'])
-                if new_file:
-                    writer.writeheader()
-                for row in rows:
-                    writer.writerow(row)
-        except Exception as exc:
-            logger.warning("Không thể ghi file credentials %s: %s", output_path, exc)
-
-        self._store_generated_credentials(rows, owner_type)
-
-    def _store_generated_credentials(self, rows, owner_type='student'):
-        if not rows:
-            return
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            for row in rows:
-                username = row.get('username')
-                password_plain = row.get('password')
-                if not username or not password_plain:
-                    continue
-                cursor.execute('''
-                    INSERT INTO generated_account_credentials (
-                        user_id, username, full_name, role, owner_type, owner_identifier, plain_password
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    row.get('user_id'),
-                    username,
-                    row.get('full_name'),
-                    row.get('role'),
-                    owner_type or row.get('owner_type') or row.get('role'),
-                    row.get('student_id') or row.get('owner_identifier'),
-                    password_plain,
-                ))
-            conn.commit()
-
-    def record_generated_credential(self, username, password, *, full_name=None,
-                                    role='student', owner_type=None, owner_identifier=None,
-                                    user_id=None):
-        """API công khai để lưu lại tài khoản/mật khẩu vừa cấp."""
-        if not username or not password:
-            return False
-        payload = {
-            'username': username,
-            'password': password,
-            'full_name': full_name,
-            'role': role,
-            'owner_type': owner_type or role,
-            'owner_identifier': owner_identifier,
-            'user_id': user_id,
-        }
-        self._append_generated_credentials([payload], owner_type=payload['owner_type'])
-        return True
 
     def get_student_by_user(self, user_id):
         """Lấy sinh viên dựa trên user_id đã liên kết."""
@@ -672,7 +634,7 @@ class DatabaseManager:
         if not kwargs:
             return False
 
-        allowed_fields = ['full_name', 'email', 'phone', 'face_image_path', 'is_active', 'class_id']
+        allowed_fields = ['full_name', 'email', 'phone', 'face_image_path', 'face_encoding', 'is_active', 'class_id']
         updates = {}
         class_name = kwargs.pop('class_name', None)
 
@@ -689,6 +651,8 @@ class DatabaseManager:
                 if field not in kwargs:
                     continue
                 value = kwargs[field]
+                if field == 'face_encoding' and value is not None:
+                    value = sqlite3.Binary(value)
                 if field == 'is_active':
                     if isinstance(value, str):
                         value = 1 if value.strip().lower() in ('1', 'true', 'on', 'yes') else 0
@@ -756,6 +720,19 @@ class DatabaseManager:
             except Exception as e:
                 logger.error(f"Failed to add face sample: {e}")
                 return None
+
+    def update_face_sample_path(self, sample_id, new_path):
+        """Cập nhật đường dẫn file cho ảnh mẫu cụ thể."""
+        if not sample_id or not new_path:
+            return False
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE student_face_samples SET image_path = ? WHERE id = ?',
+                (new_path, sample_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
     
     def get_face_samples(self, student_id):
         """Lấy tất cả ảnh mẫu của sinh viên"""
@@ -1192,15 +1169,15 @@ class DatabaseManager:
     
     # === QUẢN LÝ LỚP HỌC ===
     
-    def create_class(self, class_code, class_name, semester=None, academic_year=None, teacher_name=None, description=None):
+    def create_class(self, class_code, class_name, semester=None, academic_year=None, description=None):
         """Tạo lớp học mới"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
                 cursor.execute('''
-                    INSERT INTO classes (class_code, class_name, semester, academic_year, teacher_name, description)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (class_code, class_name, semester, academic_year, teacher_name, description))
+                    INSERT INTO classes (class_code, class_name, semester, academic_year, description)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (class_code, class_name, semester, academic_year, description))
                 conn.commit()
                 return cursor.lastrowid
             except sqlite3.IntegrityError:
@@ -1218,7 +1195,12 @@ class DatabaseManager:
                 GROUP BY c.id
                 ORDER BY c.class_name
             ''')
-            return [dict(row) for row in cursor.fetchall()]
+            records = []
+            for row in cursor.fetchall():
+                item = dict(row)
+                item['teacher_name'] = None  # Lớp hành chính không còn giáo viên phụ trách
+                records.append(item)
+            return records
     
     def get_class_by_id(self, class_id):
         """Lấy thông tin lớp học theo ID"""
@@ -1226,14 +1208,18 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM classes WHERE id = ? AND is_active = 1', (class_id,))
             row = cursor.fetchone()
-            return dict(row) if row else None
+            if not row:
+                return None
+            payload = dict(row)
+            payload['teacher_name'] = None
+            return payload
     
     def update_class(self, class_id, **kwargs):
         """Cập nhật thông tin lớp học"""
         if not kwargs:
             return False
         
-        valid_fields = ['class_code', 'class_name', 'semester', 'academic_year', 'teacher_name', 'description']
+        valid_fields = ['class_code', 'class_name', 'semester', 'academic_year', 'description']
         updates = []
         values = []
         
@@ -1381,6 +1367,42 @@ class DatabaseManager:
             row = cursor.fetchone()
             return dict(row) if row else None
 
+    def ensure_teacher_profile(self, user_record):
+        """Bảo đảm user role=teacher có bản ghi teachers tương ứng."""
+        if not user_record:
+            return None
+
+        user_id = user_record.get('id')
+        if not user_id:
+            return None
+
+        existing = self.get_teacher_by_user(user_id)
+        if existing:
+            return existing
+
+        username = (user_record.get('username') or '').strip()
+        full_name = user_record.get('full_name') or username or f"Teacher {user_id}"
+        email = user_record.get('email')
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            teacher_code = self._generate_unique_teacher_code(cursor, username or full_name, user_id)
+            cursor.execute('''
+                INSERT INTO teachers (teacher_code, full_name, email, department, user_id, is_active)
+                VALUES (?, ?, ?, ?, ?, 1)
+            ''', (
+                teacher_code,
+                full_name,
+                email,
+                'Chưa phân khoa',
+                user_id,
+            ))
+            conn.commit()
+            teacher_id = cursor.lastrowid
+            cursor.execute('SELECT * FROM teachers WHERE id = ?', (teacher_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
     def get_all_teachers(self, active_only=True):
         with self.get_connection() as conn:
             cursor = conn.cursor()
@@ -1426,29 +1448,44 @@ class DatabaseManager:
     def get_credit_class(self, credit_class_id):
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM credit_classes WHERE id = ? AND is_active = 1', (credit_class_id,))
+            cursor.execute('''
+                SELECT cc.*, t.full_name AS teacher_name, t.teacher_code AS teacher_code
+                FROM credit_classes cc
+                LEFT JOIN teachers t ON cc.teacher_id = t.id
+                WHERE cc.id = ? AND cc.is_active = 1
+            ''', (credit_class_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
 
     def get_credit_class_by_code(self, credit_code):
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM credit_classes WHERE credit_code = ? AND is_active = 1', (credit_code,))
+            cursor.execute('''
+                SELECT cc.*, t.full_name AS teacher_name, t.teacher_code AS teacher_code
+                FROM credit_classes cc
+                LEFT JOIN teachers t ON cc.teacher_id = t.id
+                WHERE cc.credit_code = ? AND cc.is_active = 1
+            ''', (credit_code,))
             row = cursor.fetchone()
             return dict(row) if row else None
 
     def list_credit_classes(self, teacher_id=None, active_only=True):
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            query = 'SELECT * FROM credit_classes WHERE 1=1'
+            query = [
+                'SELECT cc.*, t.full_name AS teacher_name, t.teacher_code AS teacher_code',
+                'FROM credit_classes cc',
+                'LEFT JOIN teachers t ON cc.teacher_id = t.id',
+                'WHERE 1=1'
+            ]
             params = []
             if active_only:
-                query += ' AND is_active = 1'
+                query.append('AND cc.is_active = 1')
             if teacher_id:
-                query += ' AND teacher_id = ?'
+                query.append('AND cc.teacher_id = ?')
                 params.append(teacher_id)
-            query += ' ORDER BY academic_year DESC, semester DESC, subject_name'
-            cursor.execute(query, params)
+            query.append('ORDER BY cc.academic_year DESC, cc.semester DESC, cc.subject_name')
+            cursor.execute('\n'.join(query), params)
             return [dict(row) for row in cursor.fetchall()]
 
     def list_credit_classes_overview(self, teacher_id=None, active_only=True):
@@ -1457,6 +1494,7 @@ class DatabaseManager:
             cursor = conn.cursor()
             base_query = [
                 'SELECT cc.*,',
+                '       t.full_name AS teacher_name,',
                 '   (',
                 '       SELECT COUNT(*)',
                 '       FROM credit_class_students ccs',
@@ -1465,6 +1503,7 @@ class DatabaseManager:
                 '         AND s.is_active = 1',
                 '   ) AS student_count',
                 'FROM credit_classes cc',
+                'LEFT JOIN teachers t ON cc.teacher_id = t.id',
                 'WHERE 1=1'
             ]
             params = []
@@ -1790,6 +1829,28 @@ class DatabaseManager:
                 LIMIT ?
             ''', (credit_class_id, limit))
             return [dict(row) for row in cursor.fetchall()]
+
+    def get_student_id_by_student_id(self, student_id):
+        """Lấy id của sinh viên từ student_id"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM students WHERE student_id = ?', (student_id,))
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def check_student_enrolled_in_credit_class(self, student_db_id, credit_class_id):
+        """Kiểm tra sinh viên đã enroll vào lớp tín chỉ chưa"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM credit_class_students WHERE student_id = ? AND credit_class_id = ?', (student_db_id, credit_class_id))
+            return cursor.fetchone() is not None
+
+    def enroll_student_in_credit_class(self, student_db_id, credit_class_id):
+        """Enroll sinh viên vào lớp tín chỉ"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('INSERT INTO credit_class_students (student_id, credit_class_id) VALUES (?, ?)', (student_db_id, credit_class_id))
+            conn.commit()
 
 # Khởi tạo instance global
 db = DatabaseManager()

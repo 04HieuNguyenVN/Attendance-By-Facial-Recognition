@@ -40,9 +40,28 @@ import numpy as np
 
 # Basic configuration
 DATA_DIR = Path('data')
+RESERVED_DATA_SUBDIRS = {'training_samples', 'models', 'external_assets'}
+ALLOWED_SUFFIXES = {'.jpg', '.jpeg', '.png'}
 CAMERA_INDEX = int(os.getenv('CAMERA_INDEX', '0'))
 REQUIRED_FRAMES = int(os.getenv('REQUIRED_FRAMES', '15'))  # shorter for demo
 DISTANCE_THRESHOLD = float(os.getenv('FACE_DISTANCE_THRESHOLD', '0.45'))
+
+
+def _iter_sample_images():
+    if not DATA_DIR.exists():
+        return []
+
+    files = []
+    for entry in DATA_DIR.iterdir():
+        if entry.is_file() and entry.suffix.lower() in ALLOWED_SUFFIXES:
+            files.append(entry)
+            continue
+        if not entry.is_dir() or entry.name in RESERVED_DATA_SUBDIRS:
+            continue
+        for sub_path in entry.rglob('*'):
+            if sub_path.is_file() and sub_path.suffix.lower() in ALLOWED_SUFFIXES:
+                files.append(sub_path)
+    return files
 
 
 def load_known_faces():
@@ -53,7 +72,7 @@ def load_known_faces():
     if not DATA_DIR.exists():
         return known
 
-    for img_path in DATA_DIR.glob('*.jpg'):
+    for img_path in _iter_sample_images():
         parts = img_path.stem.split('_')
         if len(parts) >= 2:
             student_id = parts[0]
@@ -61,6 +80,13 @@ def load_known_faces():
         else:
             student_id = img_path.stem
             display_name = img_path.stem
+
+        try:
+            relative_parts = img_path.relative_to(DATA_DIR).parts
+        except ValueError:
+            relative_parts = ()
+        if len(relative_parts) > 1 and relative_parts[0] not in RESERVED_DATA_SUBDIRS:
+            student_id = relative_parts[0]
 
         encoding = None
         if face_recognition is not None:

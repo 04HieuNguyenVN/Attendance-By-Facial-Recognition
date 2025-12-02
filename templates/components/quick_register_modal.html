@@ -72,60 +72,73 @@
                 <div class="text-center">
                   <video
                     id="webcam-preview"
-                    class="border rounded mb-2"
+                    class="border rounded mb-2 d-none"
                     width="100%"
                     height="240"
                     autoplay
-                    style="display: none"
                   ></video>
-                  <canvas id="capture-canvas" style="display: none"></canvas>
-                  <img
-                    id="captured-image"
-                    class="border rounded mb-2"
-                    width="100%"
-                    style="display: none"
-                  />
+                  <canvas id="capture-canvas" class="d-none"></canvas>
                   <div
                     id="camera-placeholder"
                     class="border rounded d-flex align-items-center justify-content-center bg-light camera-placeholder-box"
                   >
-                    <i class="fas fa-camera fa-3x text-muted"></i>
+                    <div>
+                      <i class="fas fa-camera fa-3x text-muted mb-2"></i>
+                      <p class="text-muted mb-0">
+                        Cần tối thiểu 3 ảnh rõ nét cho mỗi sinh viên
+                      </p>
+                    </div>
                   </div>
                 </div>
+                <div id="captured-images-list" class="row g-2 mt-2"></div>
+                <p id="capture-counter" class="form-text text-muted mt-2">
+                  Cần ít nhất 3 ảnh khuôn mặt. Hãy chụp ở nhiều góc độ hoặc tải
+                  lên cùng lúc.
+                </p>
                 <div class="d-grid gap-2 mt-2">
                   <button
                     type="button"
                     class="btn btn-outline-primary"
                     id="start-webcam-btn"
                   >
-                    <i class="fas fa-video me-1"></i>Bật Camera
+                    <i class="fas fa-video me-1"></i>Bật camera
                   </button>
                   <button
                     type="button"
-                    class="btn btn-success"
+                    class="btn btn-outline-secondary d-none"
+                    id="stop-webcam-btn"
+                  >
+                    <i class="fas fa-video-slash me-1"></i>Tắt camera
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-success d-none"
                     id="capture-btn"
-                    style="display: none"
+                    disabled
                   >
-                    <i class="fas fa-camera me-1"></i>Chụp ảnh
+                    <i class="fas fa-camera me-1"></i>Chụp & lưu ảnh
                   </button>
                   <button
                     type="button"
-                    class="btn btn-warning"
+                    class="btn btn-outline-danger d-none"
                     id="retake-btn"
-                    style="display: none"
                   >
-                    <i class="fas fa-redo me-1"></i>Chụp lại
+                    <i class="fas fa-trash me-1"></i>Xóa ảnh đã chụp
                   </button>
                   <div class="text-center">
-                    <small class="text-muted">hoặc</small>
+                    <small class="text-muted">hoặc tải nhiều ảnh có sẵn</small>
                   </div>
                   <input
                     type="file"
                     class="form-control"
-                    id="reg-face-image"
-                    name="face_image"
+                    id="reg-face-images"
+                    name="face_images"
                     accept="image/*"
+                    multiple
                   />
+                  <div class="form-text">
+                    Giữ Ctrl/Shift để chọn nhiều ảnh khác nhau (ít nhất 3 ảnh).
+                  </div>
                 </div>
               </div>
             </div>

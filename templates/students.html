@@ -137,9 +137,9 @@
                                 </select>
                             </div>
                             <div class="col-md-6 mb-3">
-                                <label for="faceImage" class="form-label">Ảnh khuôn mặt</label>
-                                <input type="file" class="form-control" id="faceImage" name="face_image" accept="image/*">
-                                <div class="form-text">Chọn ảnh khuôn mặt rõ nét để nhận diện</div>
+                                <label for="faceImage" class="form-label">Ảnh khuôn mặt (tối thiểu 3 ảnh)</label>
+                                <input type="file" class="form-control" id="faceImage" name="face_images" accept="image/*" multiple required>
+                                <div class="form-text">Chọn ít nhất 3 ảnh chụp ở các góc khác nhau. Có thể giữ Ctrl/Shift để chọn nhiều ảnh.</div>
                             </div>
                         </div>
                         <div class="row">
@@ -200,8 +200,8 @@
                         <div class="row">
                             <div class="col-md-6 mb-3">
                                 <label for="editFaceImage" class="form-label">Ảnh khuôn mặt mới</label>
-                                <input type="file" class="form-control" id="editFaceImage" name="face_image" accept="image/*">
-                                <div class="form-text">Chọn ảnh mới để cập nhật khuôn mặt</div>
+                                <input type="file" class="form-control" id="editFaceImage" name="face_images" accept="image/*" multiple>
+                                <div class="form-text">Chọn tối thiểu 3 ảnh nếu cần cập nhật khuôn mặt. Có thể giữ Ctrl/Shift để chọn nhiều ảnh.</div>
                             </div>
                             <div class="col-md-6 mb-3">
                                 <label class="form-label">Trạng thái</label>
@@ -260,6 +260,7 @@
                 this.currentStudentId = null;
                 this.classes = [];
                 this.classesPromise = null;
+                this.minFaceSamples = 3;
                 this.init();
             }
 
@@ -470,6 +471,13 @@
 
             async addStudent() {
                 const form = document.getElementById('addStudentForm');
+                const faceInput = document.getElementById('faceImage');
+                const selectedFaces = faceInput && faceInput.files ? faceInput.files.length : 0;
+                if (selectedFaces < this.minFaceSamples) {
+                    this.showNotification(`Vui lòng chọn tối thiểu ${this.minFaceSamples} ảnh khuôn mặt để thêm sinh viên.`, 'warning');
+                    faceInput && faceInput.focus();
+                    return;
+                }
                 const formData = new FormData(form);
 
                 try {
@@ -527,6 +535,13 @@
 
             async updateStudent() {
                 const form = document.getElementById('editStudentForm');
+                const faceInput = document.getElementById('editFaceImage');
+                const selectedFaces = faceInput && faceInput.files ? faceInput.files.length : 0;
+                if (selectedFaces > 0 && selectedFaces < this.minFaceSamples) {
+                    this.showNotification(`Vui lòng chọn tối thiểu ${this.minFaceSamples} ảnh khuôn mặt khi cập nhật.`, 'warning');
+                    faceInput && faceInput.focus();
+                    return;
+                }
                 const formData = new FormData(form);
                 const isActiveCheckbox = document.getElementById('editIsActive');
                 if (isActiveCheckbox) {
@@ -591,12 +606,18 @@
                     }
 
                     this.showNotification('Xóa sinh viên thành công!', 'success');
-                    bootstrap.Modal.getInstance(document.getElementById('deleteStudentModal')).hide();
-                        await this.loadStudents();
-                        await this.loadClasses(true); // Refresh classes after deletion
                 } catch (error) {
                     console.error('Error deleting student:', error);
                     this.showNotification('Lỗi khi xóa sinh viên: ' + error.message, 'error');
+                } finally {
+                    const modalElement = document.getElementById('deleteStudentModal');
+                    const modalInstance = bootstrap.Modal.getInstance(modalElement);
+                    if (modalInstance) {
+                        modalInstance.hide();
+                    }
+                    await this.loadStudents();
+                    await this.loadClasses(true);
+                    this.currentStudentId = null;
                 }
             }
 

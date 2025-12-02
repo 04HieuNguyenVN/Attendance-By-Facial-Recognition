@@ -1,4 +1,4 @@
-"""Vision pipeline that normalizes frames before AI inference."""
+"""Pipeline thị giác chuẩn hóa các khung hình trước khi suy luận AI."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -22,7 +22,7 @@ class VisionFrame:
 
 
 class VisionPipeline:
-    """Combines CameraManager with preprocessing utilities."""
+    """Kết hợp CameraManager với các tiện ích tiền xử lý."""
 
     def __init__(self, camera: CameraManager):
         self.camera = camera
@@ -60,12 +60,12 @@ class VisionPipeline:
         )
 
     def get_frame(self) -> VisionFrame:
-        """Backward compatible alias."""
+        """Alias tương thích ngược."""
         return self.next_frame()
 
     @staticmethod
     def placeholder(message: str = "Camera disabled") -> Optional[bytes]:
-        # Mirror existing helper but keep here for re-use
+        # Sao chép helper hiện có nhưng giữ ở đây để tái sử dụng
         h, w = 480, 640
         img = np.zeros((h, w, 3), dtype=np.uint8)
         img[:] = (30, 30, 30)

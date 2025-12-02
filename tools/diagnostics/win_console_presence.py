@@ -48,12 +48,15 @@ def load_classifier(model_path: Path, label_path: Path):
     return None, None
 
 
+RESERVED_DATA_SUBDIRS = {'training_samples', 'models', 'external_assets'}
+
+
 def build_known_encodings_from_data(data_dir: Path):
     known = {}
     if not _HAS_FR:
         return known
     for person in data_dir.iterdir():
-        if not person.is_dir():
+        if not person.is_dir() or person.name in RESERVED_DATA_SUBDIRS:
             continue
         encs = []
         for img in person.glob('*.jpg'):

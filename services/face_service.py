@@ -1,13 +1,14 @@
 """
-FaceNet-based face recognition service.
+Dịch vụ nhận diện khuôn mặt dựa trên FaceNet.
 
-Uses FaceNet (Inception-ResNet) to generate 128-dimensional embeddings
-and MTCNN for face detection/alignment. More accurate than dlib's
-face_recognition but requires TensorFlow.
+Sử dụng FaceNet (Inception-ResNet) để tạo ra các embedding 128 chiều
+và MTCNN để phát hiện/căn chỉnh khuôn mặt. Chính xác hơn dlib's
+face_recognition nhưng yêu cầu TensorFlow.
 """
 
 import os
 import pickle
+import shutil
 import numpy as np
 import cv2
 import tensorflow as tf
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class FaceRecognitionService:
-    """Advanced face recognition using FaceNet embeddings."""
+    """Nhận diện khuôn mặt nâng cao sử dụng FaceNet embeddings."""
     
     def __init__(self, 
                  facenet_model_path: str = 'face_attendance/Models/20180402-114759.pb',
@@ -28,14 +29,14 @@ class FaceRecognitionService:
                  image_size: int = 160,
                  confidence_threshold: float = 0.85):
         """
-        Initialize FaceNet service.
+        Khởi tạo dịch vụ FaceNet.
         
         Args:
-            facenet_model_path: Path to FaceNet .pb model
-            classifier_path: Path to trained classifier (SVM/softmax)
-            embedding_size: Size of face embeddings (default 128)
-            image_size: Input size for FaceNet (default 160x160)
-            confidence_threshold: Minimum confidence for recognition
+            facenet_model_path: Đường dẫn đến mô hình FaceNet .pb
+            classifier_path: Đường dẫn đến bộ phân loại đã huấn luyện (SVM/softmax)
+            embedding_size: Kích thước của face embeddings (mặc định 128)
+            image_size: Kích thước đầu vào cho FaceNet (mặc định 160x160)
+            confidence_threshold: Độ tin cậy tối thiểu để nhận diện
         """
         self.facenet_model_path = Path(facenet_model_path)
         self.classifier_path = Path(classifier_path)
@@ -43,7 +44,7 @@ class FaceRecognitionService:
         self.image_size = image_size
         self.confidence_threshold = confidence_threshold
         
-        # Lazy loading
+        # Tải lười (Lazy loading)
         self.graph = None
         self.sess = None
         self.images_placeholder = None
@@ -52,16 +53,52 @@ class FaceRecognitionService:
         self.classifier = None
         self.class_names = []
         
-        # MTCNN detector (optional - can fallback to OpenCV)
+        # Bộ phát hiện MTCNN (tùy chọn - có thể dự phòng sang OpenCV)
         self.mtcnn_detector = None
+        self._ensure_facenet_model_available()
         self._init_mtcnn()
+
+    def _ensure_facenet_model_available(self):
+        """Đảm bảo file mô hình FaceNet tồn tại, tự động phục hồi từ bản lưu nếu có."""
+        if self.facenet_model_path.exists():
+            return
+
+        # Các vị trí dự phòng chứa mô hình (ví dụ thư mục archive)
+        candidate_paths = [
+            Path('archive/legacy/projects/face_attendance/Models/20180402-114759.pb'),
+            Path('archive/legacy/projects/pipeline/Models/20180402-114759.pb'),
+            Path('data/models/20180402-114759.pb'),
+        ]
+
+        for backup_path in candidate_paths:
+            if not backup_path.exists():
+                continue
+
+            self.facenet_model_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.copy2(backup_path, self.facenet_model_path)
+                logger.info(
+                    "Đã tự động sao chép FaceNet model từ %s tới %s",
+                    backup_path,
+                    self.facenet_model_path,
+                )
+                return
+            except Exception as copy_err:
+                logger.warning("Không thể sao chép mô hình FaceNet từ %s: %s", backup_path, copy_err)
+                continue
+
+        logger.error(
+            "Không tìm thấy file FaceNet (.pb) tại %s và không có bản sao dự phòng."
+            " Sao chép 20180402-114759.pb vào vị trí này hoặc tắt USE_FACENET.",
+            self.facenet_model_path,
+        )
     
     def _init_mtcnn(self):
-        """Initialize MTCNN face detector if available."""
+        """Khởi tạo bộ phát hiện khuôn mặt MTCNN nếu có sẵn."""
         try:
             from face_attendance.align import detect_face
             
-            # Load MTCNN models
+            # Tải các mô hình MTCNN
             mtcnn_path = Path('face_attendance/align')
             if not all((mtcnn_path / f'det{i}.npy').exists() for i in [1, 2, 3]):
                 logger.warning("Không tìm thấy mô hình MTCNN, sẽ dùng bộ phát hiện OpenCV thay thế")
@@ -81,13 +118,19 @@ class FaceRecognitionService:
             self.mtcnn_detector = None
     
     def load_model(self):
-        """Load FaceNet model and trained classifier."""
+        """Tải mô hình FaceNet và bộ phân loại đã huấn luyện."""
         if self.sess is not None:
             logger.info("Mô hình FaceNet đã được tải trước đó")
             return
         
         try:
-            # Load FaceNet graph
+            # Đảm bảo mô hình tồn tại trước khi tải
+            self._ensure_facenet_model_available()
+            if not self.facenet_model_path.exists():
+                raise FileNotFoundError(
+                    f"FaceNet model not found at {self.facenet_model_path}."
+                )
+            # Tải đồ thị FaceNet
             logger.info(f"Đang tải mô hình FaceNet từ {self.facenet_model_path}")
             
             self.graph = tf.Graph()
@@ -97,12 +140,12 @@ class FaceRecognitionService:
                     graph_def.ParseFromString(f.read())
                     tf.import_graph_def(graph_def, name='')
                 
-                # Get input/output tensors
+                # Lấy các tensor đầu vào/đầu ra
                 self.images_placeholder = self.graph.get_tensor_by_name("input:0")
                 self.embeddings_tensor = self.graph.get_tensor_by_name("embeddings:0")
                 self.phase_train_placeholder = self.graph.get_tensor_by_name("phase_train:0")
             
-            # Create session
+            # Tạo session
             gpu_options = tf.compat.v1.GPUOptions(per_process_gpu_memory_fraction=0.6)
             self.sess = tf.compat.v1.Session(
                 graph=self.graph,
@@ -111,7 +154,7 @@ class FaceRecognitionService:
             
             logger.info("Mô hình FaceNet đã được tải thành công")
             
-            # Load classifier if exists
+            # Tải bộ phân loại nếu tồn tại
             if self.classifier_path.exists():
                 with open(self.classifier_path, 'rb') as f:
                     self.classifier, self.class_names = pickle.load(f)
@@ -127,19 +170,19 @@ class FaceRecognitionService:
     
     def detect_faces(self, image: np.ndarray) -> List[Tuple[int, int, int, int]]:
         """
-        Detect faces in image using MTCNN or OpenCV.
+        Phát hiện khuôn mặt trong ảnh sử dụng MTCNN hoặc OpenCV.
         
         Args:
-            image: RGB image array
+            image: Mảng ảnh RGB
             
         Returns:
-            List of bounding boxes (x, y, w, h)
+            Danh sách các bounding box (x, y, w, h)
         """
         if self.mtcnn_detector is not None:
             try:
                 from face_attendance.align import detect_face
                 
-                # MTCNN expects RGB
+                # MTCNN yêu cầu RGB
                 minsize = 20
                 threshold = [0.6, 0.7, 0.7]
                 factor = 0.709
@@ -157,7 +200,7 @@ class FaceRecognitionService:
             except Exception as e:
                 logger.warning(f"Phát hiện bằng MTCNN thất bại: {e}, chuyển sang OpenCV")
         
-        # Fallback to OpenCV Haar cascade
+        # Dự phòng sang OpenCV Haar cascade
         gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         face_cascade = cv2.CascadeClassifier(cascade_path)
@@ -167,19 +210,19 @@ class FaceRecognitionService:
     
     def preprocess_face(self, face_image: np.ndarray) -> np.ndarray:
         """
-        Preprocess face for FaceNet (resize + whitening).
+        Tiền xử lý khuôn mặt cho FaceNet (thay đổi kích thước + làm trắng).
         
         Args:
-            face_image: Face crop (RGB)
+            face_image: Vùng cắt khuôn mặt (RGB)
             
         Returns:
-            Preprocessed image ready for FaceNet
+            Ảnh đã tiền xử lý sẵn sàng cho FaceNet
         """
-        # Resize to FaceNet input size
+        # Thay đổi kích thước về kích thước đầu vào FaceNet
         resized = cv2.resize(face_image, (self.image_size, self.image_size),
                            interpolation=cv2.INTER_CUBIC)
         
-        # Whitening (mean=0, std=1)
+        # Làm trắng (mean=0, std=1)
         mean = np.mean(resized)
         std = np.std(resized)
         std_adj = np.maximum(std, 1.0 / np.sqrt(resized.size))
@@ -189,47 +232,47 @@ class FaceRecognitionService:
     
     def get_embedding(self, face_image: np.ndarray) -> np.ndarray:
         """
-        Extract 128-dim embedding from face image.
+        Trích xuất embedding 128 chiều từ ảnh khuôn mặt.
         
         Args:
-            face_image: Preprocessed face image
+            face_image: Ảnh khuôn mặt đã tiền xử lý
             
         Returns:
-            128-dimensional embedding vector
+            Vector embedding 128 chiều
         """
         if self.sess is None:
             self.load_model()
         
-        # Add batch dimension
+        # Thêm chiều batch
         face_batch = np.expand_dims(face_image, axis=0)
         
-        # Run inference
+        # Chạy suy luận
         feed_dict = {
             self.images_placeholder: face_batch,
             self.phase_train_placeholder: False
         }
         embedding = self.sess.run(self.embeddings_tensor, feed_dict=feed_dict)
         
-        return embedding[0]  # Return first (and only) embedding
+        return embedding[0]  # Trả về embedding đầu tiên (và duy nhất)
     
     def recognize_face(self, face_image: np.ndarray) -> Tuple[str, float]:
         """
-        Recognize a face using trained classifier.
+        Nhận diện một khuôn mặt sử dụng bộ phân loại đã huấn luyện.
         
         Args:
-            face_image: Preprocessed face image
+            face_image: Ảnh khuôn mặt đã tiền xử lý
             
         Returns:
-            (student_id, confidence) tuple
+            Tuple (student_id, confidence)
         """
         if self.classifier is None:
             return ("UNKNOWN", 0.0)
         
-        # Get embedding
+        # Lấy embedding
         embedding = self.get_embedding(face_image)
         embedding = embedding.reshape(1, -1)
         
-        # Predict
+        # Dự đoán
         predictions = self.classifier.predict_proba(embedding)
         best_class_idx = np.argmax(predictions, axis=1)[0]
         best_prob = predictions[0, best_class_idx]
@@ -242,33 +285,33 @@ class FaceRecognitionService:
     
     def process_frame(self, frame: np.ndarray) -> List[Dict]:
         """
-        Process a video frame and return all detected faces with identities.
+        Xử lý một khung hình video và trả về tất cả các khuôn mặt đã phát hiện cùng với danh tính.
         
         Args:
-            frame: BGR image from camera
+            frame: Ảnh BGR từ camera
             
         Returns:
-            List of dicts with keys: bbox, student_id, confidence, embedding
+            Danh sách các dict với các key: bbox, student_id, confidence, embedding
         """
-        # Convert BGR to RGB
+        # Chuyển đổi BGR sang RGB
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
-        # Detect faces
+        # Phát hiện khuôn mặt
         faces = self.detect_faces(rgb_frame)
         
         results = []
         for (x, y, w, h) in faces:
-            # Extract and preprocess face
+            # Trích xuất và tiền xử lý khuôn mặt
             face_crop = rgb_frame[y:y+h, x:x+w]
             if face_crop.size == 0:
                 continue
             
             preprocessed = self.preprocess_face(face_crop)
             
-            # Recognize
+            # Nhận diện
             student_id, confidence = self.recognize_face(preprocessed)
             
-            # Get embedding for verification/training
+            # Lấy embedding để xác minh/huấn luyện
             embedding = self.get_embedding(preprocessed)
             
             results.append({
@@ -281,7 +324,7 @@ class FaceRecognitionService:
         return results
     
     def close(self):
-        """Release resources."""
+        """Giải phóng tài nguyên."""
         if self.sess is not None:
             self.sess.close()
             self.sess = None

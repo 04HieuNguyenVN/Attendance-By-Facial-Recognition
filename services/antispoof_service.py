@@ -1,10 +1,10 @@
 """
-Anti-spoofing service to detect face presentation attacks.
+Dịch vụ chống giả mạo để phát hiện các cuộc tấn công trình bày khuôn mặt.
 
-Uses MiniFASNet models to detect:
-- Printed photos
-- Video replay attacks
-- 3D masks (partially)
+Sử dụng các mô hình MiniFASNet để phát hiện:
+- Ảnh in
+- Tấn công phát lại video
+- Mặt nạ 3D (một phần)
 """
 
 import os
@@ -20,32 +20,32 @@ logger = logging.getLogger(__name__)
 
 
 class AntiSpoofService:
-    """Detect face spoofing attacks using MiniFASNet ensemble."""
+    """Phát hiện tấn công giả mạo khuôn mặt sử dụng tổ hợp MiniFASNet."""
     
     def __init__(self, 
                  models_dir: str = 'face_attendance/resources/anti_spoof_models',
                  device: str = 'cpu',
                  spoof_threshold: float = 0.5):
         """
-        Initialize anti-spoofing service.
+        Khởi tạo dịch vụ chống giả mạo.
         
         Args:
-            models_dir: Directory containing MiniFASNet models
-            device: 'cpu' or 'cuda'
-            spoof_threshold: Threshold for real vs spoof (higher = stricter)
+            models_dir: Thư mục chứa các mô hình MiniFASNet
+            device: 'cpu' hoặc 'cuda'
+            spoof_threshold: Ngưỡng phân biệt thật/giả (càng cao càng nghiêm ngặt)
         """
         self.models_dir = Path(models_dir)
         self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
         self.spoof_threshold = spoof_threshold
         
-        # Face detector for getting bbox
+        # Bộ phát hiện khuôn mặt để lấy bbox
         self.face_detector = None
         self._init_detector()
         
         logger.info(f"AntiSpoofService đã khởi tạo trên {self.device}")
     
     def _init_detector(self):
-        """Initialize RetinaFace detector for anti-spoof."""
+        """Khởi tạo bộ phát hiện RetinaFace cho chống giả mạo."""
         try:
             caffemodel = 'face_attendance/resources/detection_model/Widerface-RetinaFace.caffemodel'
             deploy = 'face_attendance/resources/detection_model/deploy.prototxt'
@@ -62,16 +62,16 @@ class AntiSpoofService:
     
     def get_bbox(self, image: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
         """
-        Detect face bounding box using RetinaFace.
+        Phát hiện bounding box khuôn mặt sử dụng RetinaFace.
         
         Args:
-            image: BGR image
+            image: Ảnh BGR
             
         Returns:
-            (x, y, w, h) or None if no face detected
+            (x, y, w, h) hoặc None nếu không phát hiện khuôn mặt
         """
         if self.face_detector is None:
-            # Fallback to OpenCV
+            # Dự phòng sang OpenCV
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
             face_cascade = cv2.CascadeClassifier(cascade_path)
@@ -83,7 +83,7 @@ class AntiSpoofService:
         height, width = image.shape[:2]
         aspect_ratio = width / height
         
-        # Resize for faster detection
+        # Thay đổi kích thước để phát hiện nhanh hơn
         if width * height >= 192 * 192:
             import math
             resized = cv2.resize(image, 
@@ -93,7 +93,7 @@ class AntiSpoofService:
         else:
             resized = image
         
-        # Prepare blob
+        # Chuẩn bị blob
         blob = cv2.dnn.blobFromImage(resized, 1.0, mean=(104, 117, 123))
         self.face_detector.setInput(blob, 'data')
         detections = self.face_detector.forward('detection_out').squeeze()
@@ -101,14 +101,14 @@ class AntiSpoofService:
         if len(detections.shape) == 1:
             return None
         
-        # Get highest confidence detection
+        # Lấy kết quả phát hiện có độ tin cậy cao nhất
         max_conf_idx = np.argmax(detections[:, 2])
         confidence = detections[max_conf_idx, 2]
         
         if confidence < 0.5:
             return None
         
-        # Scale back to original size
+        # Tỷ lệ về kích thước ban đầu
         left = int(detections[max_conf_idx, 3] * width)
         top = int(detections[max_conf_idx, 4] * height)
         right = int(detections[max_conf_idx, 5] * width)
@@ -120,43 +120,43 @@ class AntiSpoofService:
     def crop_face(self, image: np.ndarray, bbox: Tuple[int, int, int, int],
                   scale: float, out_w: int, out_h: int) -> np.ndarray:
         """
-        Crop and resize face region for anti-spoof model.
+        Cắt và thay đổi kích thước vùng khuôn mặt cho mô hình chống giả mạo.
         
         Args:
-            image: Original image
+            image: Ảnh gốc
             bbox: (x, y, w, h)
-            scale: Crop scale factor
-            out_w, out_h: Output size
+            scale: Hệ số tỷ lệ cắt
+            out_w, out_h: Kích thước đầu ra
             
         Returns:
-            Cropped and resized face patch
+            Vùng khuôn mặt đã cắt và thay đổi kích thước
         """
         x, y, w, h = bbox
         height, width = image.shape[:2]
         
-        # Calculate crop box with margin
+        # Tính toán hộp cắt với lề
         x1 = max(0, int(x - w * (scale - 1) / 2))
         y1 = max(0, int(y - h * (scale - 1) / 2))
         x2 = min(width, int(x + w * (1 + (scale - 1) / 2)))
         y2 = min(height, int(y + h * (1 + (scale - 1) / 2)))
         
-        # Crop
+        # Cắt
         cropped = image[y1:y2, x1:x2]
         
-        # Resize
+        # Thay đổi kích thước
         resized = cv2.resize(cropped, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
         
         return resized
     
     def _load_model(self, model_path: str):
         """
-        Load a MiniFASNet model.
+        Tải một mô hình MiniFASNet.
         
         Args:
-            model_path: Path to .pth file
+            model_path: Đường dẫn đến file .pth
             
         Returns:
-            Loaded model
+            Mô hình đã tải
         """
         try:
             from face_attendance.src.model_lib.MiniFASNet import (
@@ -171,7 +171,7 @@ class AntiSpoofService:
         h_input, w_input, model_type, _ = parse_model_name(model_name)
         kernel_size = get_kernel(h_input, w_input)
         
-        # Map model type to class
+        # Ánh xạ loại mô hình sang lớp
         MODEL_MAP = {
             'MiniFASNetV1': MiniFASNetV1,
             'MiniFASNetV2': MiniFASNetV2,
@@ -186,10 +186,10 @@ class AntiSpoofService:
         
         model = model_class(conv6_kernel=kernel_size).to(self.device)
         
-        # Load weights
+        # Tải trọng số
         state_dict = torch.load(model_path, map_location=self.device)
         
-        # Handle 'module.' prefix from DataParallel
+        # Xử lý tiền tố 'module.' từ DataParallel
         if list(state_dict.keys())[0].startswith('module.'):
             from collections import OrderedDict
             new_state_dict = OrderedDict()
@@ -204,14 +204,14 @@ class AntiSpoofService:
     
     def predict_single_model(self, image: np.ndarray, model_path: str) -> np.ndarray:
         """
-        Get anti-spoof prediction from a single model.
+        Lấy dự đoán chống giả mạo từ một mô hình đơn lẻ.
         
         Args:
-            image: Face patch (BGR)
-            model_path: Path to model weights
+            image: Vùng khuôn mặt (BGR)
+            model_path: Đường dẫn đến trọng số mô hình
             
         Returns:
-            Prediction array [spoof_score, real_score, ???]
+            Mảng dự đoán [spoof_score, real_score, ???]
         """
         try:
             from face_attendance.src.data_io import transform as trans
@@ -219,19 +219,19 @@ class AntiSpoofService:
             logger.error("Module transform không khả dụng")
             return np.array([0.5, 0.5, 0.0])
         
-        # Load model
+        # Tải mô hình
         model_info = self._load_model(model_path)
         if model_info is None:
             return np.array([0.5, 0.5, 0.0])
         
         model, _, _ = model_info
         
-        # Preprocess
+        # Tiền xử lý
         test_transform = trans.Compose([trans.ToTensor()])
         img_tensor = test_transform(image)
         img_tensor = img_tensor.unsqueeze(0).to(self.device)
         
-        # Predict
+        # Dự đoán
         with torch.no_grad():
             result = model(img_tensor)
             result = F.softmax(result, dim=1).cpu().numpy()
@@ -240,27 +240,27 @@ class AntiSpoofService:
     
     def is_real_face(self, image: np.ndarray, bbox: Optional[Tuple[int, int, int, int]] = None) -> Tuple[bool, float]:
         """
-        Check if face is real (not spoofed).
+        Kiểm tra xem khuôn mặt có phải là thật (không phải giả mạo) không.
         
         Args:
-            image: BGR image
-            bbox: Optional pre-computed bbox. If None, will detect.
+            image: Ảnh BGR
+            bbox: Bbox được tính toán trước tùy chọn. Nếu None, sẽ tự phát hiện.
             
         Returns:
-            (is_real, confidence) tuple
+            Tuple (is_real, confidence)
         """
         if not self.models_dir.exists():
             logger.warning("Không tìm thấy mô hình chống giả mạo, bỏ qua kiểm tra")
-            return (True, 1.0)  # Default to real if no models
+            return (True, 1.0)  # Mặc định là thật nếu không có mô hình
         
-        # Get bbox if not provided
+        # Lấy bbox nếu chưa được cung cấp
         if bbox is None:
             bbox = self.get_bbox(image)
             if bbox is None:
                 logger.warning("Không phát hiện khuôn mặt cho kiểm tra chống giả mạo")
                 return (False, 0.0)
         
-        # Ensemble prediction from all models
+        # Dự đoán tập hợp từ tất cả các mô hình
         prediction_sum = np.zeros(3)
         model_count = 0
         
@@ -274,31 +274,31 @@ class AntiSpoofService:
                 model_path = self.models_dir / model_name
                 h_input, w_input, model_type, scale = parse_model_name(model_name)
                 
-                # Crop face for this model
+                # Cắt khuôn mặt cho mô hình này
                 if scale is not None:
                     face_patch = self.crop_face(image, bbox, scale, w_input, h_input)
                 else:
-                    # No crop, just resize
+                    # Không cắt, chỉ thay đổi kích thước
                     x, y, w, h = bbox
                     face_patch = image[y:y+h, x:x+w]
                     face_patch = cv2.resize(face_patch, (w_input, h_input))
                 
-                # Get prediction
+                # Lấy dự đoán
                 pred = self.predict_single_model(face_patch, str(model_path))
                 prediction_sum += pred
                 model_count += 1
         
         except Exception as e:
             logger.error(f"Dự đoán chống giả mạo thất bại: {e}")
-            return (True, 0.5)  # Default to uncertain
+            return (True, 0.5)  # Mặc định là không chắc chắn
         
         if model_count == 0:
             return (True, 0.5)
         
-        # Average predictions
+        # Trung bình các dự đoán
         avg_prediction = prediction_sum / model_count
         
-        # Class 1 = real, class 0 = spoof
+        # Lớp 1 = thật, lớp 0 = giả mạo
         label = np.argmax(avg_prediction)
         confidence = avg_prediction[label]
         
@@ -308,13 +308,13 @@ class AntiSpoofService:
     
     def check_frame(self, frame: np.ndarray) -> dict:
         """
-        Check a video frame for spoof attacks.
+        Kiểm tra một khung hình video cho các cuộc tấn công giả mạo.
         
         Args:
-            frame: BGR image from camera
+            frame: Ảnh BGR từ camera
             
         Returns:
-            Dict with keys: is_real, confidence, bbox, message
+            Dict với các key: is_real, confidence, bbox, message
         """
         bbox = self.get_bbox(frame)
         
