@@ -22,14 +22,15 @@
       {% if current_user -%} {% set role = (current_role or current_user.role or
       '')|lower %} {% set is_admin = role == 'admin' %} {% set is_teacher = role
       == 'teacher' %} {% set is_student = role == 'student' %}
-      <ul class="navbar-nav me-auto">
+      <ul class="navbar-nav me-auto mb-2 mb-lg-0">
         {%- if not is_student -%}
         <li class="nav-item">
           <a
             class="nav-link {% if active_page == 'home' %}active{% endif %}"
             href="{{ url_for('index') }}"
           >
-            <i class="fas fa-home me-1"></i>Trang chủ
+            <i class="fas fa-home me-1"></i
+            ><span class="d-lg-inline">Trang chủ</span>
           </a>
         </li>
         {%- endif -%} {%- if is_admin %}
@@ -38,7 +39,8 @@
             class="nav-link {% if active_page == 'students' %}active{% endif %}"
             href="/students"
           >
-            <i class="fas fa-users me-1"></i>Quản lý sinh viên
+            <i class="fas fa-users me-1"></i
+            ><span class="d-lg-inline">Quản lý sinh viên</span>
           </a>
         </li>
         {%- endif %} {%- if is_teacher %}
@@ -59,6 +61,7 @@
             <i class="fas fa-chart-bar me-1"></i>Báo cáo
           </a>
         </li>
+        {%- endif %} {%- if is_admin %}
         <li class="nav-item">
           <a
             class="nav-link {% if active_page == 'classes' %}active{% endif %}"
@@ -88,6 +91,18 @@
         {%- endif %}
       </ul>
       <ul class="navbar-nav">
+        <!-- Theme Toggle -->
+        <li class="nav-item me-3 d-flex align-items-center">
+          <button
+            class="btn btn-link nav-link p-2 theme-toggle"
+            id="themeToggle"
+            type="button"
+            aria-label="Toggle theme"
+          >
+            <i class="fas fa-moon" id="themeIcon"></i>
+          </button>
+        </li>
+
         <li class="nav-item dropdown">
           <a
             class="nav-link dropdown-toggle"

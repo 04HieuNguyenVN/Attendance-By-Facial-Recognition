@@ -4,16 +4,71 @@
  */
 
 // ========================================
-// DOMContentLoaded
+// HÀM TIỆN ÍCH
+// ========================================
+
+/**
+ * Hiển thị thông báo (toast)
+ * @param {string} message - Thông điệp cần hiển thị
+ * @param {string} type - Loại thông báo (success, error, warning, info)
+ */
+function showToast(message, type = "info") {
+  const toastEl = document.getElementById("liveToast");
+  if (!toastEl) return;
+
+  // Xóa các class loại thông báo trước đó
+  toastEl.classList.remove("bg-success", "bg-danger", "bg-warning", "bg-info");
+
+  // Thêm class tương ứng với loại thông báo mới
+  const typeClass =
+    {
+      success: "bg-success",
+      error: "bg-danger",
+      warning: "bg-warning",
+      info: "bg-info",
+    }[type] || "bg-info";
+
+  toastEl.classList.add(typeClass);
+
+  // Cập nhật biểu tượng theo loại thông báo
+  const icon = toastEl.querySelector(".toast-header i");
+  if (icon) {
+    const iconClass =
+      {
+        success: "fa-check-circle",
+        error: "fa-exclamation-circle",
+        warning: "fa-exclamation-triangle",
+        info: "fa-info-circle",
+      }[type] || "fa-info-circle";
+
+    icon.className = `fas ${iconClass} me-2`;
+  }
+
+  // Đặt nội dung thông báo
+  const body = toastEl.querySelector(".toast-body");
+  if (body) {
+    body.textContent = message;
+  }
+
+  // Hiển thị toast
+  const toast = new bootstrap.Toast(toastEl, {
+    autohide: true,
+    delay: 3000,
+  });
+  toast.show();
+}
+
+// ========================================
+// SỰ KIỆN DOMContentLoaded
 // ========================================
 document.addEventListener("DOMContentLoaded", () => {
-  // Initialize all handlers
+  // Khởi tạo tất cả bộ xử lý / handler
   const App = new MainApp();
   App.init();
 });
 
 // ========================================
-// ATTENDANCE API CLIENT
+// API ĐIỂM DANH (Attendance API Client)
 // ========================================
 class AttendanceAPI {
   constructor(fetcher) {
@@ -112,7 +167,7 @@ class AttendanceAPI {
 }
 
 // ========================================
-// MAIN APP CLASS
+// LỚP ỨNG DỤNG CHÍNH (Main App Class)
 // ========================================
 class MainApp {
   constructor() {
@@ -192,7 +247,7 @@ class MainApp {
   }
 
   initUI() {
-    // Add any general UI initializations here
+    // Thêm các khởi tạo UI chung ở đây (nếu cần)
   }
 
   initCredentialModal() {
@@ -1567,41 +1622,47 @@ class MainApp {
       const activeSession = cls.active_session;
       const isSessionOnly = Boolean(cls.is_session_only);
       const sessionPill = activeSession
-        ? `<span class="session-pill bg-success text-white"><i class="fas fa-satellite-dish me-1"></i>Đang mở</span>`
-        : `<span class="session-pill bg-light text-muted"><i class="fas fa-clock me-1"></i>Đang đóng</span>`;
+        ? `<span class="badge bg-success"><i class="fas fa-wifi me-1"></i>Đang mở</span>`
+        : `<span class="badge bg-secondary"><i class="fas fa-moon me-1"></i>Đóng</span>`;
       const sessionOnlyBadge = isSessionOnly
-        ? '<span class="badge bg-warning text-dark ms-2">Chưa ghi danh</span>'
+        ? '<span class="badge bg-warning text-dark ms-1"><i class="fas fa-exclamation-triangle me-1"></i>Chưa ghi danh</span>'
         : "";
       col.innerHTML = `
-        <div class="student-class-card h-100">
-          <div class="d-flex justify-content-between align-items-start mb-2">
-            <div>
-              <h6 class="mb-1">${this.escapeHtml(
+        <div class="student-class-card h-100 border rounded-3 p-3 ${
+          activeSession
+            ? "border-success border-2"
+            : "border-secondary border-opacity-25"
+        }">
+          <div class="d-flex justify-content-between align-items-start mb-3">
+            <div class="flex-grow-1">
+              <h6 class="mb-1 fw-semibold">${this.escapeHtml(
                 cls.subject_name || cls.display_name || "Lớp tín chỉ"
               )}</h6>
-              <div class="class-code">${this.escapeHtml(
+              <div class="badge bg-light text-primary border border-primary border-opacity-25">${this.escapeHtml(
                 cls.credit_code || "---"
               )}</div>
             </div>
-            <div class="d-flex align-items-center">${sessionPill}${sessionOnlyBadge}</div>
+            <div class="d-flex align-items-center flex-wrap gap-1">${sessionPill}${sessionOnlyBadge}</div>
           </div>
-          <p class="mb-1 text-muted"><i class="fas fa-location-dot me-1"></i>${this.escapeHtml(
-            cls.room || "Chưa có phòng"
-          )}</p>
-          <p class="mb-3 text-muted small">${this.escapeHtml(
-            cls.schedule_info || "Lịch học chưa cập nhật"
-          )}</p>
-          <div class="d-flex justify-content-between small text-muted">
-            <span><i class="fas fa-users me-1"></i>${
+          <div class="mb-2">
+            <small class="text-muted d-block mb-1"><i class="fas fa-map-marker-alt me-1"></i>${this.escapeHtml(
+              cls.room || "Chưa có phòng"
+            )}</small>
+            <small class="text-muted d-block"><i class="fas fa-calendar-alt me-1"></i>${this.escapeHtml(
+              cls.schedule_info || "Lịch học chưa cập nhật"
+            )}</small>
+          </div>
+          <div class="d-flex justify-content-between align-items-center pt-2 border-top">
+            <small class="text-muted"><i class="fas fa-users me-1"></i>${
               cls.student_count || 0
-            } sinh viên</span>
-            <span><i class="fas fa-book me-1"></i>${
+            } SV</small>
+            <small class="text-muted"><i class="fas fa-graduation-cap me-1"></i>${
               cls.semester || "---"
-            }</span>
+            }</small>
           </div>
           ${
             isSessionOnly
-              ? '<p class="text-muted small mt-2"><i class="fas fa-info-circle me-1"></i>Phiên điểm danh đang mở cho lớp này. Bạn chưa được ghi danh chính thức.</p>'
+              ? '<div class="alert alert-warning alert-sm mt-2 mb-0 py-2 px-2 small"><i class="fas fa-info-circle me-1"></i>Bạn chưa enroll chính thức. Hãy điểm danh để tự động ghi danh.</div>'
               : ""
           }
         </div>`;

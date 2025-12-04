@@ -1,6 +1,6 @@
 """
-Database module for Attendance System
-Quản lý cơ sở dữ liệu SQLite cho hệ thống điểm danh
+Mô-đun cơ sở dữ liệu cho Hệ thống điểm danh
+Quản lý cơ sở dữ liệu SQLite và các truy vấn liên quan
 """
 
 import sqlite3

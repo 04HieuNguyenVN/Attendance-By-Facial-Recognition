@@ -1,41 +1,5 @@
 {% extends "base.html" %} {% block title %}Báo cáo & Thống kê{% endblock %} {%
 block extra_css %}
-    <div class="card mb-4">
-      <div class="card-body">
-        <div class="row g-3 align-items-end">
-          <div class="col-lg-4">
-            <label for="credit-class-filter" class="form-label fw-semibold"
-              >Lớp tín chỉ</label
-            >
-            <select id="credit-class-filter" class="form-select">
-              <option value="">Chọn lớp tín chỉ để bắt đầu</option>
-            </select>
-          </div>
-          <div class="col-lg-4 d-none" id="session-filter-container">
-            <label for="session-filter" class="form-label fw-semibold"
-              >Phiên điểm danh</label
-            >
-            <select id="session-filter" class="form-select" disabled>
-              <option value="">Tất cả phiên hôm nay</option>
-            </select>
-          </div>
-          <div class="col-lg-4 col-xl-3 text-lg-end text-start">
-            <button
-              id="refresh-reports"
-              class="btn btn-primary"
-              type="button"
-              disabled
-            >
-              <i class="fas fa-sync-alt me-2"></i>Làm mới báo cáo
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div id="filter-notice" class="alert alert-info">
-      Chọn lớp tín chỉ để xem báo cáo chi tiết.
-    </div>
 <style>
   .stat-card h3 {
     font-size: 2.2rem;
@@ -53,351 +17,217 @@ block extra_css %}
   điểm danh và các hoạt động trong ngày.' %} {% set page_icon = 'fas
   fa-chart-line' %} {% include 'components/page_header.html' %}
 
-  <!-- Loading Spinner -->
-  <div id="loading-container">
-    <script>
-      document.addEventListener("DOMContentLoaded", () => {
-        const REFRESH_INTERVAL = 30000;
-        const loadingContainer = document.getElementById("loading-container");
-        const mainContent = document.getElementById("main-content");
-        const statsSection = document.getElementById("stats-section");
-        const attendanceSection = document.getElementById("attendance-section");
-        const filterNotice = document.getElementById("filter-notice");
+  <!-- Tab Navigation -->
+  <ul class="nav nav-tabs mb-4" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button
+        class="nav-link active"
+        id="report-tab"
+        data-bs-toggle="tab"
+        data-bs-target="#report-content"
+        type="button"
+        role="tab"
+      >
+        <i class="fas fa-chart-bar me-2"></i>Báo cáo điểm danh
+      </button>
+    </li>
+  </ul>
 
-        const creditClassSelect = document.getElementById("credit-class-filter");
-        const sessionSelect = document.getElementById("session-filter");
-        const sessionContainer = document.getElementById("session-filter-container");
-        const refreshButton = document.getElementById("refresh-reports");
-
-        const totalStudentsEl = document.getElementById("total-students");
-        const attendedStudentsEl = document.getElementById("attended-students");
-        const attendanceRateEl = document.getElementById("attendance-rate");
-        const attendanceRateBar = document.getElementById("attendance-rate-bar");
-        const avgDurationEl = document.getElementById("avg-duration");
-        const checkedInTableBody = document.querySelector("#checked-in-table tbody");
-        const checkedOutTableBody = document.querySelector("#checked-out-table tbody");
-
-        const emptyRow = (cols, message) =>
-          `<tr><td colspan="${cols}" class="text-center text-muted py-4">${message}</td></tr>`;
-        const escapeHtml = (value = "") =>
-          String(value)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#39;");
-        const formatTimeLabel = (value) => {
-          if (!value) return "--:--";
-          const date = new Date(value);
-          return Number.isNaN(date.getTime())
-            ? value
-            : date.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
-        };
-        const withTimestamp = (params = new URLSearchParams()) => {
-          const query = new URLSearchParams(params);
-          query.set("t", Date.now());
-          return query.toString();
-        };
-
-        const creditClassMap = new Map();
-        let currentCreditClassId = null;
-        let currentSessionId = null;
-        let refreshIntervalId = null;
-        let isLoadingData = false;
-
-        function setFilterNotice(message, type = "info") {
-          filterNotice.className = `alert alert-${type}`;
-          filterNotice.textContent = message;
-          filterNotice.classList.remove("d-none");
-        }
-
-        function toggleDataSections(visible) {
-          statsSection.classList.toggle("d-none", !visible);
-          attendanceSection.classList.toggle("d-none", !visible);
-        }
-
-        function resetTables(message = "Chưa có dữ liệu.") {
-          checkedInTableBody.innerHTML = emptyRow(5, message);
-          checkedOutTableBody.innerHTML = emptyRow(6, message);
-          totalStudentsEl.textContent = 0;
-          attendedStudentsEl.textContent = 0;
-          attendanceRateEl.textContent = "0%";
-          attendanceRateBar.style.width = "0%";
-          attendanceRateBar.setAttribute("aria-valuenow", 0);
-          avgDurationEl.textContent = "0 phút";
-        }
-
-        function stopAutoRefresh() {
-          if (refreshIntervalId) {
-            clearInterval(refreshIntervalId);
-            refreshIntervalId = null;
-          }
-        }
-
-        function startAutoRefresh() {
-          stopAutoRefresh();
-          refreshIntervalId = setInterval(loadReports, REFRESH_INTERVAL);
-        }
-
-        async function populateCreditClasses() {
-          const response = await fetch(`/api/credit-classes?${withTimestamp()}`);
-          if (!response.ok) throw new Error("Không thể tải danh sách lớp tín chỉ");
-          const payload = await response.json();
-          const classes = payload.data || [];
-
-          creditClassSelect.innerHTML =
-            '<option value="">Chọn lớp tín chỉ để bắt đầu</option>';
-          creditClassMap.clear();
-
-          (classes || []).forEach((cls) => {
-            creditClassMap.set(String(cls.id), cls);
-            const option = document.createElement("option");
-            option.value = cls.id;
-            option.textContent =
-              cls.display_name || cls.subject_name || cls.credit_code || `Lớp #${cls.id}`;
-            creditClassSelect.appendChild(option);
-          });
-        }
-
-        function formatSessionLabel(session) {
-          let dateLabel = "Không rõ ngày";
-          if (session.session_date) {
-            const parsed = new Date(session.session_date);
-            dateLabel = Number.isNaN(parsed.getTime())
-              ? session.session_date
-              : parsed.toLocaleDateString("vi-VN");
-          }
-          const statusLabel = session.status ? session.status.toUpperCase() : "--";
-          return `Phiên ${session.id} · ${dateLabel} · ${statusLabel}`;
-        }
-
-        async function loadSessionsForClass(classId) {
-          sessionContainer.classList.remove("d-none");
-          sessionSelect.disabled = true;
-          sessionSelect.innerHTML = '<option value="">Tất cả phiên trong ngày</option>';
-
-          try {
-            const response = await fetch(
-              `/api/reports/credit-classes/${classId}/sessions?${withTimestamp()}`
-            );
-            if (!response.ok) throw new Error("Không thể tải phiên điểm danh");
-            const payload = await response.json();
-            if (!payload.success) throw new Error(payload.message || "Lỗi tải phiên");
-
-            const sessions = payload.sessions || [];
-            sessions.forEach((session) => {
-              const option = document.createElement("option");
-              option.value = session.id;
-              option.textContent = formatSessionLabel(session);
-              sessionSelect.appendChild(option);
-            });
-
-            sessionSelect.disabled = false;
-          } catch (error) {
-            console.error(error);
-            setFilterNotice(
-              "Không thể tải danh sách phiên. Vui lòng thử lại hoặc chọn lớp khác.",
-              "warning"
-            );
-          }
-        }
-
-        async function loadReports() {
-          if (!currentCreditClassId || isLoadingData) {
-            return;
-          }
-
-          isLoadingData = true;
-          setFilterNotice("Đang tải dữ liệu báo cáo...", "secondary");
-
-          const params = new URLSearchParams();
-          params.set("credit_class_id", currentCreditClassId);
-          if (currentSessionId) {
-            params.set("session_id", currentSessionId);
-          }
-
-          try {
-            const statsResponse = await fetch(
-              `/api/statistics?${withTimestamp(params)}`,
-              { headers: { "Cache-Control": "no-cache" } }
-            );
-            if (!statsResponse.ok) throw new Error("Không thể tải thống kê");
-            const stats = await statsResponse.json();
-
-            totalStudentsEl.textContent = stats.total_students;
-            attendedStudentsEl.textContent = stats.attended_students;
-            attendanceRateEl.textContent = `${stats.attendance_rate}%`;
-            attendanceRateBar.style.width = `${stats.attendance_rate}%`;
-            attendanceRateBar.setAttribute("aria-valuenow", stats.attendance_rate);
-            avgDurationEl.textContent = `${stats.avg_duration_minutes} phút`;
-
-            const attendanceResponse = await fetch(
-              `/api/attendance/today?${withTimestamp(params)}`,
-              { headers: { "Cache-Control": "no-cache" } }
-            );
-            if (!attendanceResponse.ok) throw new Error("Không thể tải danh sách điểm danh");
-            const attendance = await attendanceResponse.json();
-            if (!attendance.success) {
-              throw new Error(attendance.error || "Attendance API returned an error");
-            }
-
-            checkedInTableBody.innerHTML = "";
-            if (Array.isArray(attendance.checked_in) && attendance.checked_in.length) {
-              attendance.checked_in.forEach((student) => {
-                const checkInTime = formatTimeLabel(student.timestamp || student.check_in_time);
-                const durationLabel =
-                  typeof student.duration_minutes === "number"
-                    ? `${student.duration_minutes} phút`
-                    : "--";
-                const safeName = escapeHtml(student.full_name || "Không rõ");
-                const row = `
-                  <tr>
-                    <td>${escapeHtml(student.student_id || "--")}</td>
-                    <td>${safeName}</td>
-                    <td>${checkInTime}</td>
-                    <td>${durationLabel}</td>
-                    <td>
-                      <button class="btn btn-sm btn-outline-primary js-view-details"
-                              data-student-id="${escapeHtml(student.student_id || "")}"
-                              data-student-name="${safeName}">
-                        <i class="fas fa-eye"></i>
-                      </button>
-                    </td>
-                  </tr>`;
-                checkedInTableBody.insertAdjacentHTML("beforeend", row);
-              });
-            } else {
-              checkedInTableBody.innerHTML = emptyRow(5, "Chưa có sinh viên nào có mặt.");
-            }
-
-            checkedOutTableBody.innerHTML = "";
-            if (Array.isArray(attendance.checked_out) && attendance.checked_out.length) {
-              attendance.checked_out.forEach((student) => {
-                const checkInTime = formatTimeLabel(student.timestamp || student.check_in_time);
-                const checkOutTime = formatTimeLabel(student.checkout_time);
-                const durationLabel =
-                  typeof student.duration_minutes === "number"
-                    ? `${student.duration_minutes} phút`
-                    : "--";
-                const safeName = escapeHtml(student.full_name || "Không rõ");
-                const row = `
-                  <tr>
-                    <td>${escapeHtml(student.student_id || "--")}</td>
-                    <td>${safeName}</td>
-                    <td>${checkInTime}</td>
-                    <td>${checkOutTime}</td>
-                    <td>${durationLabel}</td>
-                    <td>
-                      <button class="btn btn-sm btn-outline-primary js-view-details"
-                              data-student-id="${escapeHtml(student.student_id || "")}"
-                              data-student-name="${safeName}">
-                        <i class="fas fa-eye"></i>
-                      </button>
-                    </td>
-                  </tr>`;
-                checkedOutTableBody.insertAdjacentHTML("beforeend", row);
-              });
-            } else {
-              checkedOutTableBody.innerHTML = emptyRow(6, "Chưa có sinh viên nào ra về.");
-            }
-
-            const classInfo = creditClassMap.get(String(currentCreditClassId));
-            let noticeMessage = classInfo
-              ? `Đang xem báo cáo của ${classInfo.display_name || classInfo.subject_name || classInfo.credit_code}`
-              : "Đang xem báo cáo lớp đã chọn";
-            if (currentSessionId) {
-              noticeMessage += ` · Phiên #${currentSessionId}`;
-            } else if (attendance.session && attendance.session.status) {
-              noticeMessage += ` · Phiên hiện tại: ${attendance.session.status}`;
-            }
-            setFilterNotice(noticeMessage, "success");
-            toggleDataSections(true);
-          } catch (error) {
-            console.error("Error loading reports:", error);
-            setFilterNotice(
-              error.message || "Không thể tải báo cáo. Vui lòng thử lại.",
-              "danger"
-            );
-            toggleDataSections(false);
-            resetTables("Không có dữ liệu do lỗi tải.");
-          } finally {
-            isLoadingData = false;
-          }
-        }
-
-        async function handleClassChange() {
-          currentCreditClassId = creditClassSelect.value || null;
-          currentSessionId = null;
-          sessionSelect.value = "";
-          stopAutoRefresh();
-
-          if (!currentCreditClassId) {
-            sessionContainer.classList.add("d-none");
-            sessionSelect.disabled = true;
-            refreshButton.disabled = true;
-            setFilterNotice("Chọn lớp tín chỉ để xem báo cáo chi tiết.", "info");
-            toggleDataSections(false);
-            resetTables("Chưa chọn lớp tín chỉ.");
-            return;
-          }
-
-          refreshButton.disabled = false;
-          setFilterNotice("Đang tải danh sách phiên cho lớp đã chọn...", "secondary");
-          await loadSessionsForClass(currentCreditClassId);
-          await loadReports();
-          startAutoRefresh();
-        }
-
-        async function handleSessionChange() {
-          currentSessionId = sessionSelect.value || null;
-          await loadReports();
-        }
-
-        refreshButton.addEventListener("click", () => loadReports());
-        creditClassSelect.addEventListener("change", handleClassChange);
-        sessionSelect.addEventListener("change", handleSessionChange);
-
-        (async () => {
-          try {
-            await populateCreditClasses();
-            loadingContainer.classList.add("d-none");
-            mainContent.classList.remove("d-none");
-            setFilterNotice("Chọn lớp tín chỉ để xem báo cáo chi tiết.", "info");
-          } catch (error) {
-            console.error(error);
-            loadingContainer.innerHTML = `<div class="alert alert-danger">Không thể tải dữ liệu khởi tạo báo cáo.</div>`;
-          }
-        })();
-      });
-    </script>
-      <!-- Checked Out Students -->
-      <div class="col-lg-6 mb-4">
-        <div class="card shadow">
-          <div class="card-header bg-danger text-white">
-            <h6 class="m-0 font-weight-bold">
-              <i class="fas fa-sign-out-alt me-2"></i>Sinh viên đã về
-            </h6>
-          </div>
-          <div class="card-body p-0">
-            <div class="table-responsive">
-              <table
-                class="table table-striped table-hover mb-0"
-                id="checked-out-table"
+  <!-- Tab Content -->
+  <div class="tab-content">
+    <div class="tab-pane fade show active" id="report-content" role="tabpanel">
+      <!-- Filter Section -->
+      <div class="card mb-4">
+        <div class="card-body">
+          <div class="row g-3 align-items-end">
+            <div class="col-lg-4">
+              <label for="credit-class-filter" class="form-label fw-semibold"
+                >Lớp tín chỉ</label
               >
-                <thead>
-                  <tr>
-                    <th>Mã SV</th>
-                    <th>Họ tên</th>
-                    <th>Thời gian vào</th>
-                    <th>Thời gian ra</th>
-                    <th>Tổng thời gian</th>
-                    <th>Hành động</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <!-- Data will be inserted here by JS -->
-                </tbody>
-              </table>
+              <select id="credit-class-filter" class="form-select">
+                <option value="">Chọn lớp tín chỉ để bắt đầu</option>
+              </select>
+            </div>
+            <div class="col-lg-4 d-none" id="session-filter-container">
+              <label for="session-filter" class="form-label fw-semibold"
+                >Phiên điểm danh</label
+              >
+              <select id="session-filter" class="form-select" disabled>
+                <option value="">Tất cả phiên hôm nay</option>
+              </select>
+            </div>
+            <div class="col-lg-4 col-xl-3 text-lg-end text-start">
+              <button
+                id="refresh-reports"
+                class="btn btn-primary"
+                type="button"
+                disabled
+              >
+                <i class="fas fa-sync-alt me-2"></i>Làm mới báo cáo
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="filter-notice" class="alert alert-info">
+        Chọn lớp tín chỉ để xem báo cáo chi tiết.
+      </div>
+
+      <!-- Loading Spinner -->
+      <div id="loading-container" class="text-center py-5">
+        <div class="spinner-border text-primary" role="status">
+          <span class="visually-hidden">Đang tải...</span>
+        </div>
+        <p class="mt-3 text-muted">Đang tải dữ liệu báo cáo...</p>
+      </div>
+
+      <!-- Main Content -->
+      <div id="main-content" class="d-none">
+        <!-- Statistics Section -->
+        <div id="stats-section" class="d-none">
+          <div class="row mb-4">
+            <div class="col-lg-3 col-md-6 mb-3">
+              <div class="card stat-card bg-primary text-white shadow">
+                <div class="card-body">
+                  <div
+                    class="d-flex justify-content-between align-items-center"
+                  >
+                    <div>
+                      <div class="text-white-50 small">Tổng sinh viên</div>
+                      <h3 class="mb-0" id="total-students">0</h3>
+                    </div>
+                    <div class="text-white-50">
+                      <i class="fas fa-users fa-3x"></i>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-lg-3 col-md-6 mb-3">
+              <div class="card stat-card bg-success text-white shadow">
+                <div class="card-body">
+                  <div
+                    class="d-flex justify-content-between align-items-center"
+                  >
+                    <div>
+                      <div class="text-white-50 small">Đã điểm danh</div>
+                      <h3 class="mb-0" id="attended-students">0</h3>
+                    </div>
+                    <div class="text-white-50">
+                      <i class="fas fa-user-check fa-3x"></i>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-lg-3 col-md-6 mb-3">
+              <div class="card stat-card bg-info text-white shadow">
+                <div class="card-body">
+                  <div>
+                    <div class="text-white-50 small">Tỷ lệ điểm danh</div>
+                    <h3 class="mb-0" id="attendance-rate">0%</h3>
+                    <div class="progress mt-2 bg-white bg-opacity-25">
+                      <div
+                        id="attendance-rate-bar"
+                        class="progress-bar bg-white progress-bar-initial"
+                        role="progressbar"
+                        aria-label="Tỷ lệ điểm danh"
+                        aria-valuenow="0"
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-lg-3 col-md-6 mb-3">
+              <div class="card stat-card bg-warning text-white shadow">
+                <div class="card-body">
+                  <div
+                    class="d-flex justify-content-between align-items-center"
+                  >
+                    <div>
+                      <div class="text-white-50 small">Thời gian TB</div>
+                      <h3 class="mb-0" id="avg-duration">0 phút</h3>
+                    </div>
+                    <div class="text-white-50">
+                      <i class="fas fa-clock fa-3x"></i>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Attendance Tables Section -->
+        <div id="attendance-section" class="d-none">
+          <div class="row">
+            <!-- Checked In Students -->
+            <div class="col-lg-6 mb-4">
+              <div class="card shadow">
+                <div class="card-header bg-success text-white">
+                  <h6 class="m-0 font-weight-bold">
+                    <i class="fas fa-sign-in-alt me-2"></i>Sinh viên đang có mặt
+                  </h6>
+                </div>
+                <div class="card-body p-0">
+                  <div class="table-responsive">
+                    <table
+                      class="table table-striped table-hover mb-0"
+                      id="checked-in-table"
+                    >
+                      <thead>
+                        <tr>
+                          <th>Mã SV</th>
+                          <th>Họ tên</th>
+                          <th>Thời gian vào</th>
+                          <th>Thời gian có mặt</th>
+                          <th>Hành động</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <!-- Data will be inserted here by JS -->
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Checked Out Students -->
+            <div class="col-lg-6 mb-4">
+              <div class="card shadow">
+                <div class="card-header bg-danger text-white">
+                  <h6 class="m-0 font-weight-bold">
+                    <i class="fas fa-sign-out-alt me-2"></i>Sinh viên đã về
+                  </h6>
+                </div>
+                <div class="card-body p-0">
+                  <div class="table-responsive">
+                    <table
+                      class="table table-striped table-hover mb-0"
+                      id="checked-out-table"
+                    >
+                      <thead>
+                        <tr>
+                          <th>Mã SV</th>
+                          <th>Họ tên</th>
+                          <th>Thời gian vào</th>
+                          <th>Thời gian ra</th>
+                          <th>Tổng thời gian</th>
+                          <th>Hành động</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <!-- Data will be inserted here by JS -->
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -407,16 +237,26 @@ block extra_css %}
 </div>
 {% endblock %} {% block extra_js %}
 <script>
-  document.addEventListener("DOMContentLoaded", function () {
+  document.addEventListener("DOMContentLoaded", () => {
+    const REFRESH_INTERVAL = 30000;
     const loadingContainer = document.getElementById("loading-container");
     const mainContent = document.getElementById("main-content");
+    const statsSection = document.getElementById("stats-section");
+    const attendanceSection = document.getElementById("attendance-section");
+    const filterNotice = document.getElementById("filter-notice");
+
+    const creditClassSelect = document.getElementById("credit-class-filter");
+    const sessionSelect = document.getElementById("session-filter");
+    const sessionContainer = document.getElementById(
+      "session-filter-container"
+    );
+    const refreshButton = document.getElementById("refresh-reports");
 
     const totalStudentsEl = document.getElementById("total-students");
     const attendedStudentsEl = document.getElementById("attended-students");
     const attendanceRateEl = document.getElementById("attendance-rate");
     const attendanceRateBar = document.getElementById("attendance-rate-bar");
     const avgDurationEl = document.getElementById("avg-duration");
-
     const checkedInTableBody = document.querySelector(
       "#checked-in-table tbody"
     );
@@ -434,23 +274,149 @@ block extra_css %}
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
     const formatTimeLabel = (value) => {
-      if (!value) {
-        return "--:--";
-      }
+      if (!value) return "--:--";
       const date = new Date(value);
-      if (Number.isNaN(date.getTime())) {
-        return value;
-      }
-      return date.toLocaleTimeString("vi-VN");
+      return Number.isNaN(date.getTime())
+        ? value
+        : date.toLocaleTimeString("vi-VN", {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+    };
+    const withTimestamp = (params = new URLSearchParams()) => {
+      const query = new URLSearchParams(params);
+      query.set("t", Date.now());
+      return query.toString();
     };
 
-    async function loadReports() {
+    const creditClassMap = new Map();
+    let currentCreditClassId = null;
+    let currentSessionId = null;
+    let refreshIntervalId = null;
+    let isLoadingData = false;
+
+    function setFilterNotice(message, type = "info") {
+      filterNotice.className = `alert alert-${type}`;
+      filterNotice.textContent = message;
+      filterNotice.classList.remove("d-none");
+    }
+
+    function toggleDataSections(visible) {
+      statsSection.classList.toggle("d-none", !visible);
+      attendanceSection.classList.toggle("d-none", !visible);
+    }
+
+    function resetTables(message = "Chưa có dữ liệu.") {
+      checkedInTableBody.innerHTML = emptyRow(5, message);
+      checkedOutTableBody.innerHTML = emptyRow(6, message);
+      totalStudentsEl.textContent = 0;
+      attendedStudentsEl.textContent = 0;
+      attendanceRateEl.textContent = "0%";
+      attendanceRateBar.style.width = "0%";
+      attendanceRateBar.setAttribute("aria-valuenow", 0);
+      avgDurationEl.textContent = "0 phút";
+    }
+
+    function stopAutoRefresh() {
+      if (refreshIntervalId) {
+        clearInterval(refreshIntervalId);
+        refreshIntervalId = null;
+      }
+    }
+
+    function startAutoRefresh() {
+      stopAutoRefresh();
+      refreshIntervalId = setInterval(loadReports, REFRESH_INTERVAL);
+    }
+
+    async function populateCreditClasses() {
+      const response = await fetch(`/api/credit-classes?${withTimestamp()}`);
+      if (!response.ok) throw new Error("Không thể tải danh sách lớp tín chỉ");
+      const payload = await response.json();
+      const classes = payload.data || [];
+
+      creditClassSelect.innerHTML =
+        '<option value="">Chọn lớp tín chỉ để bắt đầu</option>';
+      creditClassMap.clear();
+
+      (classes || []).forEach((cls) => {
+        creditClassMap.set(String(cls.id), cls);
+        const option = document.createElement("option");
+        option.value = cls.id;
+        option.textContent =
+          cls.display_name ||
+          cls.subject_name ||
+          cls.credit_code ||
+          `Lớp #${cls.id}`;
+        creditClassSelect.appendChild(option);
+      });
+    }
+
+    function formatSessionLabel(session) {
+      let dateLabel = "Không rõ ngày";
+      if (session.session_date) {
+        const parsed = new Date(session.session_date);
+        dateLabel = Number.isNaN(parsed.getTime())
+          ? session.session_date
+          : parsed.toLocaleDateString("vi-VN");
+      }
+      const statusLabel = session.status ? session.status.toUpperCase() : "--";
+      return `Phiên ${session.id} · ${dateLabel} · ${statusLabel}`;
+    }
+
+    async function loadSessionsForClass(classId) {
+      sessionContainer.classList.remove("d-none");
+      sessionSelect.disabled = true;
+      sessionSelect.innerHTML =
+        '<option value="">Tất cả phiên trong ngày</option>';
+
       try {
-        // Fetch statistics
-        const statsResponse = await fetch(`/api/statistics?t=${Date.now()}`, {
-          headers: { "Cache-Control": "no-cache" },
+        const response = await fetch(
+          `/api/reports/credit-classes/${classId}/sessions?${withTimestamp()}`
+        );
+        if (!response.ok) throw new Error("Không thể tải phiên điểm danh");
+        const payload = await response.json();
+        if (!payload.success)
+          throw new Error(payload.message || "Lỗi tải phiên");
+
+        const sessions = payload.sessions || [];
+        sessions.forEach((session) => {
+          const option = document.createElement("option");
+          option.value = session.id;
+          option.textContent = formatSessionLabel(session);
+          sessionSelect.appendChild(option);
         });
-        if (!statsResponse.ok) throw new Error("Failed to load statistics");
+
+        sessionSelect.disabled = false;
+      } catch (error) {
+        console.error(error);
+        setFilterNotice(
+          "Không thể tải danh sách phiên. Vui lòng thử lại hoặc chọn lớp khác.",
+          "warning"
+        );
+      }
+    }
+
+    async function loadReports() {
+      if (!currentCreditClassId || isLoadingData) {
+        return;
+      }
+
+      isLoadingData = true;
+      setFilterNotice("Đang tải dữ liệu báo cáo...", "secondary");
+
+      const params = new URLSearchParams();
+      params.set("credit_class_id", currentCreditClassId);
+      if (currentSessionId) {
+        params.set("session_id", currentSessionId);
+      }
+
+      try {
+        const statsResponse = await fetch(
+          `/api/statistics?${withTimestamp(params)}`,
+          { headers: { "Cache-Control": "no-cache" } }
+        );
+        if (!statsResponse.ok) throw new Error("Không thể tải thống kê");
         const stats = await statsResponse.json();
 
         totalStudentsEl.textContent = stats.total_students;
@@ -460,49 +426,50 @@ block extra_css %}
         attendanceRateBar.setAttribute("aria-valuenow", stats.attendance_rate);
         avgDurationEl.textContent = `${stats.avg_duration_minutes} phút`;
 
-        // Fetch attendance data
         const attendanceResponse = await fetch(
-          `/api/attendance/today?t=${Date.now()}`,
-          {
-            headers: { "Cache-Control": "no-cache" },
-          }
+          `/api/attendance/today?${withTimestamp(params)}`,
+          { headers: { "Cache-Control": "no-cache" } }
         );
         if (!attendanceResponse.ok)
-          throw new Error("Failed to load attendance data");
+          throw new Error("Không thể tải danh sách điểm danh");
         const attendance = await attendanceResponse.json();
-        if (!attendance.success)
+        if (!attendance.success) {
           throw new Error(
             attendance.error || "Attendance API returned an error"
           );
+        }
 
-        // Populate checked-in table
         checkedInTableBody.innerHTML = "";
-        if (attendance.checked_in && attendance.checked_in.length > 0) {
+        if (
+          Array.isArray(attendance.checked_in) &&
+          attendance.checked_in.length
+        ) {
           attendance.checked_in.forEach((student) => {
-            const checkInTime = formatTimeLabel(student.timestamp);
+            const checkInTime = formatTimeLabel(
+              student.timestamp || student.check_in_time
+            );
             const durationLabel =
               typeof student.duration_minutes === "number"
                 ? `${student.duration_minutes} phút`
                 : "--";
             const safeName = escapeHtml(student.full_name || "Không rõ");
-            const actionBtn = `
-                        <button class="btn btn-sm btn-outline-primary js-view-details"
-                                data-student-id="${escapeHtml(
-                                  student.student_id || ""
-                                )}"
-                                data-student-name="${safeName}">
-                            <i class="fas fa-eye"></i>
-                        </button>`;
             const row = `
-                        <tr>
-                            <td>${escapeHtml(student.student_id || "--")}</td>
-                            <td>${safeName}</td>
-                            <td>${checkInTime}</td>
-                            <td>${durationLabel}</td>
-                            <td>${actionBtn}</td>
-                        </tr>
-                    `;
-            checkedInTableBody.innerHTML += row;
+              <tr>
+                <td>${escapeHtml(student.student_id || "--")}</td>
+                <td>${safeName}</td>
+                <td>${checkInTime}</td>
+                <td>${durationLabel}</td>
+                <td>
+                  <button class="btn btn-sm btn-outline-primary js-view-details" title="Xem chi tiết"
+                          data-student-id="${escapeHtml(
+                            student.student_id || ""
+                          )}"
+                          data-student-name="${safeName}">
+                    <i class="fas fa-eye"></i>
+                  </button>
+                </td>
+              </tr>`;
+            checkedInTableBody.insertAdjacentHTML("beforeend", row);
           });
         } else {
           checkedInTableBody.innerHTML = emptyRow(
@@ -511,36 +478,39 @@ block extra_css %}
           );
         }
 
-        // Populate checked-out table
         checkedOutTableBody.innerHTML = "";
-        if (attendance.checked_out && attendance.checked_out.length > 0) {
+        if (
+          Array.isArray(attendance.checked_out) &&
+          attendance.checked_out.length
+        ) {
           attendance.checked_out.forEach((student) => {
-            const checkInTime = formatTimeLabel(student.timestamp);
+            const checkInTime = formatTimeLabel(
+              student.timestamp || student.check_in_time
+            );
             const checkOutTime = formatTimeLabel(student.checkout_time);
+            const durationLabel =
+              typeof student.duration_minutes === "number"
+                ? `${student.duration_minutes} phút`
+                : "--";
             const safeName = escapeHtml(student.full_name || "Không rõ");
-            const actionBtn = `
-                        <button class="btn btn-sm btn-outline-primary js-view-details"
-                                data-student-id="${escapeHtml(
-                                  student.student_id || ""
-                                )}"
-                                data-student-name="${safeName}">
-                            <i class="fas fa-eye"></i>
-                        </button>`;
             const row = `
-                        <tr>
-                            <td>${escapeHtml(student.student_id || "--")}</td>
-                            <td>${safeName}</td>
-                            <td>${checkInTime}</td>
-                            <td>${checkOutTime}</td>
-                            <td>${
-                              typeof student.duration_minutes === "number"
-                                ? `${student.duration_minutes} phút`
-                                : "--"
-                            }</td>
-                            <td>${actionBtn}</td>
-                        </tr>
-                    `;
-            checkedOutTableBody.innerHTML += row;
+              <tr>
+                <td>${escapeHtml(student.student_id || "--")}</td>
+                <td>${safeName}</td>
+                <td>${checkInTime}</td>
+                <td>${checkOutTime}</td>
+                <td>${durationLabel}</td>
+                <td>
+                  <button class="btn btn-sm btn-outline-primary js-view-details" title="Xem chi tiết"
+                          data-student-id="${escapeHtml(
+                            student.student_id || ""
+                          )}"
+                          data-student-name="${safeName}">
+                    <i class="fas fa-eye"></i>
+                  </button>
+                </td>
+              </tr>`;
+            checkedOutTableBody.insertAdjacentHTML("beforeend", row);
           });
         } else {
           checkedOutTableBody.innerHTML = emptyRow(
@@ -549,20 +519,80 @@ block extra_css %}
           );
         }
 
-        // Show content
-        loadingContainer.classList.add("d-none");
-        mainContent.classList.remove("d-none");
+        const classInfo = creditClassMap.get(String(currentCreditClassId));
+        let noticeMessage = classInfo
+          ? `Đang xem báo cáo của ${
+              classInfo.display_name ||
+              classInfo.subject_name ||
+              classInfo.credit_code
+            }`
+          : "Đang xem báo cáo lớp đã chọn";
+        if (currentSessionId) {
+          noticeMessage += ` · Phiên #${currentSessionId}`;
+        } else if (attendance.session && attendance.session.status) {
+          noticeMessage += ` · Phiên hiện tại: ${attendance.session.status}`;
+        }
+        setFilterNotice(noticeMessage, "success");
+        toggleDataSections(true);
       } catch (error) {
         console.error("Error loading reports:", error);
-        loadingContainer.innerHTML = `<div class="alert alert-danger">Không thể tải báo cáo. Vui lòng thử lại sau.</div>`;
+        setFilterNotice(
+          error.message || "Không thể tải báo cáo. Vui lòng thử lại.",
+          "danger"
+        );
+        toggleDataSections(false);
+        resetTables("Không có dữ liệu do lỗi tải.");
+      } finally {
+        isLoadingData = false;
       }
     }
 
-    // Initial load
-    loadReports();
+    async function handleClassChange() {
+      currentCreditClassId = creditClassSelect.value || null;
+      currentSessionId = null;
+      sessionSelect.value = "";
+      stopAutoRefresh();
 
-    // Auto-refresh every 30 seconds
-    setInterval(loadReports, 30000);
+      if (!currentCreditClassId) {
+        sessionContainer.classList.add("d-none");
+        sessionSelect.disabled = true;
+        refreshButton.disabled = true;
+        setFilterNotice("Chọn lớp tín chỉ để xem báo cáo chi tiết.", "info");
+        toggleDataSections(false);
+        resetTables("Chưa chọn lớp tín chỉ.");
+        return;
+      }
+
+      refreshButton.disabled = false;
+      setFilterNotice(
+        "Đang tải danh sách phiên cho lớp đã chọn...",
+        "secondary"
+      );
+      await loadSessionsForClass(currentCreditClassId);
+      await loadReports();
+      startAutoRefresh();
+    }
+
+    async function handleSessionChange() {
+      currentSessionId = sessionSelect.value || null;
+      await loadReports();
+    }
+
+    refreshButton.addEventListener("click", () => loadReports());
+    creditClassSelect.addEventListener("change", handleClassChange);
+    sessionSelect.addEventListener("change", handleSessionChange);
+
+    (async () => {
+      try {
+        await populateCreditClasses();
+        loadingContainer.classList.add("d-none");
+        mainContent.classList.remove("d-none");
+        setFilterNotice("Chọn lớp tín chỉ để xem báo cáo chi tiết.", "info");
+      } catch (error) {
+        console.error(error);
+        loadingContainer.innerHTML = `<div class="alert alert-danger">Không thể tải dữ liệu khởi tạo báo cáo.</div>`;
+      }
+    })();
   });
 </script>
 {% endblock %}

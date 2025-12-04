@@ -171,7 +171,7 @@ try:
     possible_paths = [
         os.path.join(os.path.dirname(__file__), 'yolov8m-face.pt'),  # Thư mục gốc
         os.path.join(os.path.dirname(__file__), 'models', 'yolov8m-face.pt'),  # Thư mục models
-        os.path.join(os.path.dirname(__file__), 'Cong-Nghe-Xu-Ly-Anh', 'yolov8m-face.pt'),  # Thư mục tham khảo (fallback)
+        os.path.join(os.path.dirname(__file__), 'Cong-Nghe-Xu-Ly-Anh', 'yolov8m-face.pt'),  # Thư mục tham khảo (dự phòng)
     ]
     
     yolo_model_path = None
@@ -2349,7 +2349,16 @@ def login():
                 db.update_last_login(user['id'])
                 flash('Đăng nhập thành công', 'success')
                 app.logger.info("User %s đã đăng nhập", user.get('username'))
-                return redirect(next_url or url_for('index'))
+                
+                # Redirect based on user role
+                if next_url:
+                    return redirect(next_url)
+                
+                user_role = (user.get('role') or '').lower()
+                if user_role == 'student':
+                    return redirect(url_for('student_portal_page'))
+                else:
+                    return redirect(url_for('index'))
 
     return render_template('login.html', next_url=next_url, error=error, active_page='login')
 

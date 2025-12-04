@@ -84,18 +84,26 @@
                   </span>
                 </li>
               </ul>
-              <div class="mt-3 p-3 bg-light rounded border">
-                <p class="text-muted text-uppercase small mb-1">Tổng quan</p>
-                <div class="d-flex justify-content-between align-items-center">
-                  <div>
-                    <h4 class="mb-0" id="student-summary-total">0</h4>
-                    <small class="text-muted">Lớp tín chỉ</small>
+              <div class="mt-3 p-3 bg-light rounded-3 border-0">
+                <p class="text-muted text-uppercase small mb-2 fw-semibold">
+                  Thống kê
+                </p>
+                <div class="row g-3">
+                  <div class="col-6">
+                    <div class="text-center p-2 bg-white rounded-2">
+                      <h4 class="mb-1 text-primary" id="student-summary-total">
+                        0
+                      </h4>
+                      <small class="text-muted d-block">Lớp tín chỉ</small>
+                    </div>
                   </div>
-                  <div>
-                    <h4 class="mb-0 text-success" id="student-summary-active">
-                      0
-                    </h4>
-                    <small class="text-muted">Phiên đang mở</small>
+                  <div class="col-6">
+                    <div class="text-center p-2 bg-white rounded-2">
+                      <h4 class="mb-1 text-success" id="student-summary-active">
+                        0
+                      </h4>
+                      <small class="text-muted d-block">Phiên mở</small>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -125,15 +133,17 @@
             </div>
             <div class="card-body">
               <div id="student-class-loading" class="text-center py-5">
-                <div class="spinner-border text-primary" role="status"></div>
-                <p class="text-muted mt-3 mb-0">
-                  Đang tải danh sách lớp tín chỉ...
-                </p>
+                <div class="spinner-border text-primary mb-3" role="status">
+                  <span class="visually-hidden">Đang tải...</span>
+                </div>
+                <p class="text-muted mb-0">Đang tải danh sách lớp tín chỉ...</p>
               </div>
               <div id="student-class-empty" class="text-center py-5 d-none">
-                <i class="fas fa-inbox fa-2x text-muted mb-3"></i>
-                <p class="text-muted mb-0">
-                  Bạn chưa được ghi nhận trong lớp tín chỉ nào.
+                <i class="fas fa-inbox fa-3x text-muted mb-3 opacity-50"></i>
+                <h6 class="text-muted mb-2">Chưa có lớp tín chỉ</h6>
+                <p class="text-muted small mb-0">
+                  Bạn chưa được ghi danh vào lớp tín chỉ nào.<br />
+                  Vui lòng liên hệ giảng viên hoặc phòng đào tạo.
                 </p>
               </div>
               <div id="student-class-list" class="row g-3"></div>

@@ -63,6 +63,31 @@
     <!-- Footer Component -->
     {% include 'components/footer.html' %}
 
+    <!-- Toast Container for Notifications -->
+    <div class="toast-container">
+      <div
+        id="liveToast"
+        class="toast"
+        role="alert"
+        aria-live="assertive"
+        aria-atomic="true"
+      >
+        <div class="toast-header">
+          <i class="fas fa-info-circle me-2"></i>
+          <strong class="me-auto">Thông báo</strong>
+          <button
+            type="button"
+            class="btn-close btn-close-white"
+            data-bs-dismiss="toast"
+            aria-label="Close"
+          ></button>
+        </div>
+        <div class="toast-body">
+          <!-- Message will be inserted here -->
+        </div>
+      </div>
+    </div>
+
     <!-- Attendance Detail Modal -->
     {% include 'components/attendance_detail_modal.html' %}
 
@@ -71,6 +96,9 @@
 
     <!-- Common Scripts Component -->
     {% include 'components/scripts.html' %}
+
+    <!-- Theme Switcher -->
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 
     <!-- Custom JavaScript -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>

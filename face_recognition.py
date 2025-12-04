@@ -1,4 +1,4 @@
-# face_recognition.py - Face recognition and inference logic
+# face_recognition.py - Logic nhận diện khuôn mặt và suy luận
 
 import os
 import numpy as np
@@ -11,12 +11,12 @@ from config import (
 )
 from utils import iter_student_face_image_files
 
-# Global variables for face recognition
+# Biến toàn cục cho nhận diện khuôn mặt
 known_face_embeddings = []  # np.ndarray (N, D)
 known_face_names = []
 known_face_ids = []
 
-# Import services if available
+# Nhập các dịch vụ nếu có sẵn
 face_service = None
 antispoof_service = None
 training_service = None
@@ -38,7 +38,7 @@ if USE_FACENET:
     except Exception as e:
         print(f"Could not initialize FaceNet services: {e}")
 
-# Import DeepFace if available
+# Nhập DeepFace nếu có sẵn
 try:
     from deepface import DeepFace
     from services.deepface_db import build_db_from_data_dir, recognize_face as deepface_recognize
@@ -46,7 +46,7 @@ try:
 except ImportError:
     DEEPFACE_AVAILABLE = False
 
-# Import inference engine components
+# Nhập các thành phần của inference engine
 try:
     from core.inference.engine import (
         DeepFaceStrategy,
@@ -355,14 +355,14 @@ def estimate_head_pose(landmarks, frame_size):
         import cv2
         import math
 
-        # Model points cho khuôn mặt trung bình (đơn vị: mm)
+        # Điểm mô hình cho khuôn mặt trung bình (đơn vị: mm)
         model_points = np.array([
-            (0.0, 0.0, 0.0),          # Nose tip
-            (0.0, -330.0, -65.0),     # Chin
-            (-225.0, 170.0, -135.0),  # Left eye left corner
-            (225.0, 170.0, -135.0),   # Right eye right corner
-            (-150.0, -150.0, -125.0), # Left Mouth corner
-            (150.0, -150.0, -125.0)   # Right mouth corner
+                (0.0, 0.0, 0.0),          # Đỉnh mũi
+                (0.0, -330.0, -65.0),     # Cằm
+                (-225.0, 170.0, -135.0),  # Góc ngoài mắt trái
+                (225.0, 170.0, -135.0),   # Góc ngoài mắt phải
+                (-150.0, -150.0, -125.0), # Góc miệng trái
+                (150.0, -150.0, -125.0)   # Góc miệng phải
         ])
 
         # Xử lý landmarks
@@ -405,9 +405,9 @@ def estimate_head_pose(landmarks, frame_size):
             [0, 0, 1]
         ], dtype=np.float32)
 
-        dist_coeffs = np.zeros((4, 1))  # Assuming no lens distortion
+        dist_coeffs = np.zeros((4, 1))  # Giả sử không có sai lệch ống kính
 
-        # Solve PnP
+        # Giải bài toán PnP (Perspective-n-Point)
         success, rotation_vector, translation_vector = cv2.solvePnP(
             model_points, image_points, camera_matrix, dist_coeffs, flags=cv2.SOLVEPNP_ITERATIVE
         )
@@ -415,7 +415,7 @@ def estimate_head_pose(landmarks, frame_size):
         if not success:
             return None, None, None
 
-        # Convert rotation vector to Euler angles
+        # Chuyển vector quay sang góc Euler
         rmat, _ = cv2.Rodrigues(rotation_vector)
         sy = math.sqrt(rmat[0, 0] * rmat[0, 0] + rmat[1, 0] * rmat[1, 0])
         singular = sy < 1e-6
