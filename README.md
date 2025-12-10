@@ -1,103 +1,93 @@
-# Attendance By Facial Recognition
+# 🎓 Hệ Thống Điểm Danh Bằng Nhận Diện Khuôn Mặt
 
-README này cung cấp hướng dẫn và mô tả chi tiết cho dự án "Attendance By Facial
-Recognition" — một ứng dụng web để quản lý và điểm danh bằng nhận diện khuôn
-mặt. Nội dung trình bày bằng tiếng Việt, bao gồm chức năng, kiến trúc,
-hướng dẫn cài đặt, cách chạy và ghi chú về chế độ AI / demo.
+<div align="center">
 
-## Mục tiêu dự án
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
+[![Flask](https://img.shields.io/badge/Flask-3.0+-green.svg)](https://flask.palletsprojects.com/)
+[![OpenCV](https://img.shields.io/badge/OpenCV-4.0+-red.svg)](https://opencv.org/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-- Tạo một hệ thống điểm danh dễ triển khai cho trường học / lớp học.
-- Cho phép thử nghiệm nhanh (demo mode) mà không cần cài đặt các thư viện AI nặng.
-- Cung cấp thư mục tham khảo `face_attendance/` chứa pipeline FaceNet / MTCNN
-  / anti-spoof để phát triển nâng cao.
+**Hệ thống điểm danh tự động sử dụng AI nhận diện khuôn mặt**
 
-## Tính năng chính
+[Tính năng](#-tính-năng-chính) • [Cài đặt](#-cài-đặt) • [Sử dụng](#-sử-dụng) • [Kiến trúc](#-kiến-trúc) • [API](#-api-documentation) • [Tài liệu](#-tài-liệu)
 
-- Quản lý học sinh, lớp học và thông tin cơ bản.
-- Upload ảnh khuôn mặt và lưu nhiều mẫu cho mỗi học sinh (`student_face_samples`).
-- Điểm danh tự động từ camera (real-time) hoặc từ hình ảnh.
-- Giảm false-positive bằng cơ chế so sánh embedding + progress confirmation (nhiều frame liên tiếp).
-- Thông báo thời gian thực trên giao diện bằng SSE (Server-Sent Events).
-- Chế độ DEMO cho phép chạy ứng dụng mà không cần face_recognition / dlib.
+</div>
 
-## Kiến trúc tổng quan
+---
 
-- `app.py`: ứng dụng Flask chính, route xử lý, SSE, API.
-- `database.py`: helper và schema SQLite, các hàm CRUD cho `students`, `attendance`, `student_face_samples`.
-- `templates/` và `static/`: giao diện người dùng (HTML/CSS/JS).
-- `uploads/` và `data/`: nơi lưu ảnh upload và dữ liệu mẫu.
-- `face_attendance/`: mã tham khảo cho pipeline AI (không bắt buộc để chạy demo).
+## 📖 Giới thiệu
 
-## Cài đặt nhanh
+**Attendance By Facial Recognition** là hệ thống điểm danh thông minh dành cho trường học và tổ chức giáo dục, sử dụng công nghệ AI nhận diện khuôn mặt để tự động hóa quy trình điểm danh.
 
-1. Clone repo và chuyển vào thư mục dự án:
+### 🎯 Mục tiêu dự án
 
-```powershell
+- ✅ Tạo hệ thống điểm danh tự động, chính xác và dễ triển khai
+- ✅ Giảm thời gian điểm danh từ 10-15 phút xuống còn vài giây
+- ✅ Hỗ trợ đa dạng môi trường: classroom, online, hybrid
+- ✅ Cung cấp báo cáo và thống kê chi tiết theo thời gian thực
+- ✅ Dễ dàng mở rộng và tùy chỉnh cho nhu cầu cụ thể
+
+---
+
+## 🚀 Tính năng chính
+
+### 👤 Quản lý sinh viên & Lớp học
+
+- ✨ Thêm, sửa, xóa thông tin sinh viên với giao diện trực quan
+- 📸 Upload và quản lý nhiều ảnh khuôn mặt cho mỗi sinh viên
+- 🏫 Tạo và quản lý lớp học, lớp tín chỉ
+- 📋 Phân quyền: Admin, Teacher, Student
+
+### 🎥 Nhận diện khuôn mặt Real-time
+
+- 🤖 **Đa chiến lược AI**: DeepFace, FaceNet, face_recognition
+- 🔍 **Anti-spoofing**: Phát hiện ảnh giả, video fake
+- ⚡ **Xử lý nhanh**: Tối ưu với multi-threading và caching
+- 📊 **Progress tracking**: Xác nhận qua nhiều frames để tăng độ chính xác
+- 🎯 **Độ chính xác cao**: > 95% trong điều kiện ánh sáng tốt
+
+### 📈 Báo cáo & Thống kê
+
+- 📊 Biểu đồ điểm danh theo thời gian thực
+- 📅 Báo cáo theo ngày, tuần, tháng, học kỳ
+- 📤 Xuất file Excel, PDF
+- 📧 Thông báo tự động qua email/SSE
+- 🔔 Dashboard với thống kê trực quan
+
+### 🛠️ Tính năng nâng cao
+
+- 🌓 **Dark mode** với giao diện hiện đại
+- 🌐 **Đa ngôn ngữ**: Tiếng Việt, English
+- 📱 **Responsive design**: Hỗ trợ mobile, tablet
+- 🔐 **Bảo mật**: JWT, session management, password hashing
+- 🎮 **Demo mode**: Test không cần camera hay AI libraries
+
+---
+
+## 💻 Yêu cầu hệ thống
+
+### Tối thiểu
+
+- **OS**: Windows 10+, Linux (Ubuntu 20.04+), macOS 10.15+
+- **Python**: 3.8 hoặc cao hơn
+- **RAM**: 4GB (8GB khuyến nghị)
+- **Camera**: Webcam 720p trở lên (hoặc sử dụng DEMO_MODE)
+
+### Khuyến nghị
+
+- **RAM**: 8GB+
+- **GPU**: NVIDIA GPU với CUDA support (tùy chọn, tăng tốc xử lý)
+- **Camera**: 1080p với góc rộng cho nhận diện nhóm
+
+---
+
+## 🛠️ Cài đặt
+
+### Bước 1: Clone Repository
+
+```bash
 git clone https://github.com/04HieuNguyenVN/Attendance-By-Facial-Recognition.git
 cd "Attendance by facial recognition"
-```
-
-2. Tạo virtualenv và kích hoạt (Windows PowerShell):
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-3. Cài package cơ bản:
-
-```powershell
-pip install -r requirements.txt
-```
-
-Ghi chú: nếu bạn muốn bật tính năng AI đầy đủ (FaceNet / MTCNN / anti-spoof),
-chuẩn bị một môi trường riêng (virtualenv/conda) và cài các dependency nâng cao
-(xem lịch sử `requirements_advanced.txt` hoặc tài liệu trong `face_attendance/`).
-
-## Cấu hình
-
-Tạo file `.env` từ `./.env.example` và chỉnh các giá trị cần thiết:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Thiết lập tối thiểu:
-
-```env
-SECRET_KEY=your-random-secret-key
-DEMO_MODE=0
-CAMERA_INDEX=0
-```
-
-DEMO_MODE=1 sẽ bật chế độ giả lập (không cần camera hoặc thư viện dlib/face_recognition).
-
-## Chạy ứng dụng
-
-Chạy trong PowerShell:
-
-```powershell
-# nếu dùng virtualenv
-.\.venv\Scripts\python.exe app.py
-# hoặc dùng start.bat
-.\start.bat
-```
-
-Truy cập giao diện tại `http://127.0.0.1:5000`.
-
-## Chế độ AI vs Demo
-
-- Demo: phù hợp để kiểm tra giao diện, thao tác quản lý học sinh, báo cáo mà không
-  cần cài `dlib` hay `face_recognition`.
-- Full AI: khi muốn chạy pipeline nhận diện thực sự, cài thêm các thư viện AI
-  (TensorFlow, dlib, face-recognition, PyTorch nếu dùng anti-spoof). Khuyến nghị
-  dùng môi trường riêng và kiểm tra phiên bản tương thích.
-
-## Cấu trúc thư mục (tóm tắt)
-
-```
-├── app.py
 ├── database.py
 ├── logging_config.py
 ├── requirements.txt

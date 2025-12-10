@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% set active_page = 'classes' %}
 
-{% block title %}Quản lý lớp học - Hệ thống điểm danh{% endblock %}
+{% block title %}{{ _('classes.page_title') }} - {{ _('app_name') }}{% endblock %}
 
 {% block extra_css %}
     <style>
@@ -28,17 +28,17 @@
 <!-- Page Header -->
 <div class="row mb-4">
     <div class="col-md-8">
-        <h2><i class="fas fa-chalkboard-teacher me-2"></i>Quản lý lớp học</h2>
-        <p class="text-muted">Quản lý thông tin lớp học và sinh viên</p>
+        <h2><i class="fas fa-chalkboard-teacher me-2"></i>{{ _('classes.manage_classes') }}</h2>
+        <p class="text-muted">{{ _('classes.manage_desc') }}</p>
     </div>
     <div class="col-md-4 text-end">
         {% if current_user and (current_role or current_user.role)|lower == 'admin' %}
         <div class="btn-group" role="group">
             <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addClassModal">
-                <i class="fas fa-plus me-1"></i>Thêm lớp hành chính
+                <i class="fas fa-plus me-1"></i>{{ _('classes.add_admin_class') }}
             </button>
             <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addCreditClassModal">
-                <i class="fas fa-plus-circle me-1"></i>Thêm lớp tín chỉ
+                <i class="fas fa-plus-circle me-1"></i>{{ _('classes.add_credit_class') }}
             </button>
         </div>
         {% endif %}
@@ -52,7 +52,7 @@
                     <div class="card-body text-center">
                         <i class="fas fa-chalkboard-teacher fa-2x mb-2"></i>
                         <div class="stats-number">{{ total_classes }}</div>
-                        <div>Tổng lớp học</div>
+                        <div>{{ _('classes.total_classes') }}</div>
                     </div>
                 </div>
             </div>
@@ -61,7 +61,7 @@
                     <div class="card-body text-center">
                         <i class="fas fa-users fa-2x mb-2"></i>
                         <div class="stats-number">{{ total_students }}</div>
-                        <div>Tổng sinh viên</div>
+                        <div>{{ _('reports.total_students') }}</div>
                     </div>
                 </div>
             </div>
@@ -70,7 +70,7 @@
                     <div class="card-body text-center">
                         <i class="fas fa-calendar-check fa-2x mb-2"></i>
                         <div class="stats-number">{{ active_classes }}</div>
-                        <div>Lớp đang hoạt động</div>
+                        <div>{{ _('classes.active_classes') }}</div>
                     </div>
                 </div>
             </div>
@@ -79,7 +79,7 @@
                     <div class="card-body text-center">
                         <i class="fas fa-chart-line fa-2x mb-2"></i>
                         <div class="stats-number">{{ avg_attendance }}%</div>
-                        <div>Tỷ lệ điểm danh TB</div>
+                        <div>{{ _('classes.avg_attendance') }}</div>
                     </div>
                 </div>
             </div>
@@ -88,10 +88,10 @@
         <!-- Classes List: separate Admin and Credit classes -->
         <ul class="nav nav-tabs mb-4" id="classTabs" role="tablist">
             <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="admin-tab" data-bs-toggle="tab" data-bs-target="#admin" type="button" role="tab" aria-controls="admin" aria-selected="true">Lớp hành chính ({{ total_admin }})</button>
+                <button class="nav-link active" id="admin-tab" data-bs-toggle="tab" data-bs-target="#admin" type="button" role="tab" aria-controls="admin" aria-selected="true">{{ _('classes.admin_classes') }} ({{ total_admin }})</button>
             </li>
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="credit-tab" data-bs-toggle="tab" data-bs-target="#credit" type="button" role="tab" aria-controls="credit" aria-selected="false">Lớp tín chỉ ({{ total_credit }})</button>
+                <button class="nav-link" id="credit-tab" data-bs-toggle="tab" data-bs-target="#credit" type="button" role="tab" aria-controls="credit" aria-selected="false">{{ _('classes.credit_classes') }} ({{ total_credit }})</button>
             </li>
         </ul>
 
@@ -197,11 +197,11 @@
         {% if not admin_classes and not credit_classes %}
         <div class="text-center py-5">
             <i class="fas fa-chalkboard-teacher fa-3x text-muted mb-3"></i>
-            <h4 class="text-muted">Chưa có lớp học nào</h4>
-            <p class="text-muted">Hãy thêm lớp học đầu tiên để bắt đầu</p>
+            <h4 class="text-muted">{{ _('classes.no_classes_yet') }}</h4>
+            <p class="text-muted">{{ _('classes.add_first_class') }}</p>
             {% if current_user and (current_role or current_user.role)|lower == 'admin' %}
             <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addClassModal">
-                <i class="fas fa-plus me-1"></i>Thêm lớp học
+                <i class="fas fa-plus me-1"></i>{{ _('class.add_class') }}
             </button>
             {% endif %}
         </div>
@@ -214,48 +214,48 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">
-                        <i class="fas fa-plus me-2"></i>Thêm lớp học mới
+                        <i class="fas fa-plus me-2"></i>{{ _('classes.add_new_class') }}
                     </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _('common.close') }}"></button>
                 </div>
                 <form id="addClassForm">
                     <div class="modal-body">
                         <div class="mb-3">
-                            <label for="classCode" class="form-label">Mã lớp học *</label>
+                            <label for="classCode" class="form-label">{{ _('classes.class_code_label') }} *</label>
                             <input type="text" class="form-control" id="classCode" name="class_code" required>
                         </div>
                         <div class="mb-3">
-                            <label for="className" class="form-label">Tên lớp học *</label>
+                            <label for="className" class="form-label">{{ _('classes.class_name_label') }} *</label>
                             <input type="text" class="form-control" id="className" name="class_name" required>
                         </div>
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="mb-3">
-                                    <label for="semester" class="form-label">Học kỳ</label>
+                                    <label for="semester" class="form-label">{{ _('classes.semester') }}</label>
                                     <select class="form-select" id="semester" name="semester">
-                                        <option value="">Chọn học kỳ</option>
-                                        <option value="HK1">Học kỳ 1</option>
-                                        <option value="HK2">Học kỳ 2</option>
-                                        <option value="HK3">Học kỳ 3</option>
+                                        <option value="">{{ _('classes.select_semester') }}</option>
+                                        <option value="HK1">{{ _('classes.semester_1') }}</option>
+                                        <option value="HK2">{{ _('classes.semester_2') }}</option>
+                                        <option value="HK3">{{ _('classes.semester_3') }}</option>
                                     </select>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="mb-3">
-                                    <label for="academicYear" class="form-label">Năm học</label>
+                                    <label for="academicYear" class="form-label">{{ _('classes.academic_year') }}</label>
                                     <input type="text" class="form-control" id="academicYear" name="academic_year" placeholder="2024-2025">
                                 </div>
                             </div>
                         </div>
                         <div class="mb-3">
-                            <label for="description" class="form-label">Mô tả</label>
+                            <label for="description" class="form-label">{{ _('classes.description') }}</label>
                             <textarea class="form-control" id="description" name="description" rows="3"></textarea>
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('common.cancel') }}</button>
                         <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-save me-1"></i>Lưu
+                            <i class="fas fa-save me-1"></i>{{ _('common.save') }}
                         </button>
                     </div>
                 </form>
@@ -269,24 +269,24 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">
-                        <i class="fas fa-plus me-2"></i>Thêm lớp tín chỉ mới
+                        <i class="fas fa-plus me-2"></i>{{ _('classes.add_new_credit_class') }}
                     </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _('common.close') }}"></button>
                 </div>
                 <form id="addCreditClassForm">
                     <div class="modal-body">
                         <div class="mb-3">
-                            <label for="creditCode" class="form-label">Mã lớp tín chỉ *</label>
+                            <label for="creditCode" class="form-label">{{ _('classes.credit_code_label') }} *</label>
                             <input type="text" class="form-control" id="creditCode" name="credit_code" required>
                         </div>
                         <div class="mb-3">
-                            <label for="subjectName" class="form-label">Tên môn học *</label>
+                            <label for="subjectName" class="form-label">{{ _('classes.subject_name') }} *</label>
                             <input type="text" class="form-control" id="subjectName" name="subject_name" required>
                         </div>
                         <div class="mb-3">
-                            <label for="creditTeacher" class="form-label">Giảng viên phụ trách *</label>
+                            <label for="creditTeacher" class="form-label">{{ _('classes.teacher_in_charge') }} *</label>
                             <select class="form-select" id="creditTeacher" name="teacher_id" required>
-                                <option value="">Chọn giảng viên</option>
+                                <option value="">{{ _('classes.select_teacher') }}</option>
                                 {% for teacher in teacher_options %}
                                 <option value="{{ teacher.id }}">
                                     {{ teacher.full_name or teacher.teacher_code }}
@@ -298,36 +298,36 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="mb-3">
-                                    <label for="creditSemester" class="form-label">Học kỳ</label>
+                                    <label for="creditSemester" class="form-label">{{ _('classes.semester') }}</label>
                                     <select class="form-select" id="creditSemester" name="semester">
-                                        <option value="">Chọn học kỳ</option>
-                                        <option value="HK1">Học kỳ 1</option>
-                                        <option value="HK2">Học kỳ 2</option>
-                                        <option value="HK3">Học kỳ 3</option>
+                                        <option value="">{{ _('classes.select_semester') }}</option>
+                                        <option value="HK1">{{ _('classes.semester_1') }}</option>
+                                        <option value="HK2">{{ _('classes.semester_2') }}</option>
+                                        <option value="HK3">{{ _('classes.semester_3') }}</option>
                                     </select>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="mb-3">
-                                    <label for="creditAcademicYear" class="form-label">Năm học</label>
+                                    <label for="creditAcademicYear" class="form-label">{{ _('classes.academic_year') }}</label>
                                     <input type="text" class="form-control" id="creditAcademicYear" name="academic_year" placeholder="2025-2026">
                                 </div>
                             </div>
                         </div>
                         <div class="mb-3">
-                            <label for="creditRoom" class="form-label">Phòng học</label>
+                            <label for="creditRoom" class="form-label">{{ _('classes.room') }}</label>
                             <input type="text" class="form-control" id="creditRoom" name="room">
                         </div>
                         <div class="mb-3">
-                            <label for="creditNotes" class="form-label">Ghi chú</label>
+                            <label for="creditNotes" class="form-label">{{ _('classes.notes') }}</label>
                             <textarea class="form-control" id="creditNotes" name="notes" rows="3"></textarea>
                         </div>
                         
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('common.cancel') }}</button>
                         <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-save me-1"></i>Lưu
+                            <i class="fas fa-save me-1"></i>{{ _('common.save') }}
                         </button>
                     </div>
                 </form>
@@ -341,25 +341,25 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">
-                        <i class="fas fa-edit me-2"></i>Chỉnh sửa lớp tín chỉ
+                        <i class="fas fa-edit me-2"></i>{{ _('classes.edit_credit_class') }}
                     </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _('common.close') }}"></button>
                 </div>
                 <form id="editCreditClassForm">
                     <div class="modal-body">
                         <input type="hidden" id="editCreditClassId" name="credit_class_id">
                         <div class="mb-3">
-                            <label for="editCreditCode" class="form-label">Mã lớp tín chỉ *</label>
+                            <label for="editCreditCode" class="form-label">{{ _('classes.credit_code_label') }} *</label>
                             <input type="text" class="form-control" id="editCreditCode" name="credit_code" required>
                         </div>
                         <div class="mb-3">
-                            <label for="editSubjectName" class="form-label">Tên môn học *</label>
+                            <label for="editSubjectName" class="form-label">{{ _('classes.subject_name') }} *</label>
                             <input type="text" class="form-control" id="editSubjectName" name="subject_name" required>
                         </div>
                         <div class="mb-3">
-                            <label for="editCreditTeacher" class="form-label">Giảng viên phụ trách *</label>
+                            <label for="editCreditTeacher" class="form-label">{{ _('classes.teacher_in_charge') }} *</label>
                             <select class="form-select" id="editCreditTeacher" name="teacher_id" required>
-                                <option value="">Chọn giảng viên</option>
+                                <option value="">{{ _('classes.select_teacher') }}</option>
                                 {% for teacher in teacher_options %}
                                 <option value="{{ teacher.id }}">
                                     {{ teacher.full_name or teacher.teacher_code }}
@@ -371,35 +371,35 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="mb-3">
-                                    <label for="editCreditSemester" class="form-label">Học kỳ</label>
+                                    <label for="editCreditSemester" class="form-label">{{ _('classes.semester') }}</label>
                                     <select class="form-select" id="editCreditSemester" name="semester">
-                                        <option value="">Chọn học kỳ</option>
-                                        <option value="HK1">Học kỳ 1</option>
-                                        <option value="HK2">Học kỳ 2</option>
-                                        <option value="HK3">Học kỳ 3</option>
+                                        <option value="">{{ _('classes.select_semester') }}</option>
+                                        <option value="HK1">{{ _('classes.semester_1') }}</option>
+                                        <option value="HK2">{{ _('classes.semester_2') }}</option>
+                                        <option value="HK3">{{ _('classes.semester_3') }}</option>
                                     </select>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="mb-3">
-                                    <label for="editCreditAcademicYear" class="form-label">Năm học</label>
+                                    <label for="editCreditAcademicYear" class="form-label">{{ _('classes.academic_year') }}</label>
                                     <input type="text" class="form-control" id="editCreditAcademicYear" name="academic_year">
                                 </div>
                             </div>
                         </div>
                         <div class="mb-3">
-                            <label for="editCreditRoom" class="form-label">Phòng học</label>
+                            <label for="editCreditRoom" class="form-label">{{ _('classes.room') }}</label>
                             <input type="text" class="form-control" id="editCreditRoom" name="room">
                         </div>
                         <div class="mb-3">
-                            <label for="editCreditNotes" class="form-label">Ghi chú</label>
+                            <label for="editCreditNotes" class="form-label">{{ _('classes.notes') }}</label>
                             <textarea class="form-control" id="editCreditNotes" name="notes" rows="3"></textarea>
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('common.cancel') }}</button>
                         <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-save me-1"></i>Cập nhật
+                            <i class="fas fa-save me-1"></i>{{ _('common.update') }}
                         </button>
                     </div>
                 </form>
@@ -413,49 +413,49 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">
-                        <i class="fas fa-edit me-2"></i>Chỉnh sửa lớp học
+                        <i class="fas fa-edit me-2"></i>{{ _('classes.edit_admin_class') }}
                     </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _('common.close') }}"></button>
                 </div>
                 <form id="editClassForm">
                     <div class="modal-body">
                         <input type="hidden" id="editClassId" name="class_id">
                         <div class="mb-3">
-                            <label for="editClassCode" class="form-label">Mã lớp học *</label>
+                            <label for="editClassCode" class="form-label">{{ _('classes.class_code_label') }} *</label>
                             <input type="text" class="form-control" id="editClassCode" name="class_code" required>
                         </div>
                         <div class="mb-3">
-                            <label for="editClassName" class="form-label">Tên lớp học *</label>
+                            <label for="editClassName" class="form-label">{{ _('classes.class_name_label') }} *</label>
                             <input type="text" class="form-control" id="editClassName" name="class_name" required>
                         </div>
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="mb-3">
-                                    <label for="editSemester" class="form-label">Học kỳ</label>
+                                    <label for="editSemester" class="form-label">{{ _('classes.semester') }}</label>
                                     <select class="form-select" id="editSemester" name="semester">
-                                        <option value="">Chọn học kỳ</option>
-                                        <option value="HK1">Học kỳ 1</option>
-                                        <option value="HK2">Học kỳ 2</option>
-                                        <option value="HK3">Học kỳ 3</option>
+                                        <option value="">{{ _('classes.select_semester') }}</option>
+                                        <option value="HK1">{{ _('classes.semester_1') }}</option>
+                                        <option value="HK2">{{ _('classes.semester_2') }}</option>
+                                        <option value="HK3">{{ _('classes.semester_3') }}</option>
                                     </select>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="mb-3">
-                                    <label for="editAcademicYear" class="form-label">Năm học</label>
+                                    <label for="editAcademicYear" class="form-label">{{ _('classes.academic_year') }}</label>
                                     <input type="text" class="form-control" id="editAcademicYear" name="academic_year">
                                 </div>
                             </div>
                         </div>
                         <div class="mb-3">
-                            <label for="editDescription" class="form-label">Mô tả</label>
+                            <label for="editDescription" class="form-label">{{ _('classes.description') }}</label>
                             <textarea class="form-control" id="editDescription" name="description" rows="3"></textarea>
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('common.cancel') }}</button>
                         <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-save me-1"></i>Cập nhật
+                            <i class="fas fa-save me-1"></i>{{ _('common.update') }}
                         </button>
                     </div>
                 </form>
@@ -469,47 +469,47 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">
-                        <i class="fas fa-eye me-2"></i>Thông tin lớp học
+                        <i class="fas fa-eye me-2"></i>{{ _('classes.class_detail') }}
                     </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _('common.close') }}"></button>
                 </div>
                 <div class="modal-body">
                     <div id="classDetailLoading" class="text-center py-4">
                         <div class="spinner-border text-primary" role="status"></div>
-                        <p class="mt-2 text-muted">Đang tải dữ liệu...</p>
+                        <p class="mt-2 text-muted">{{ _('classes.loading_data') }}</p>
                     </div>
                     <div id="classDetailError" class="alert alert-danger d-none"></div>
                     <div id="classDetailContent" class="d-none">
                         <div class="mb-3">
                             <h4 id="detailClassName" class="mb-0"></h4>
-                            <small class="text-muted">Mã lớp: <span id="detailClassCode"></span></small>
+                            <small class="text-muted">{{ _('class.class_code') }}: <span id="detailClassCode"></span></small>
                         </div>
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <div class="border rounded p-3 h-100">
-                                    <h6 class="text-uppercase text-muted">Thông tin chung</h6>
-                                    <p class="mb-1">Giảng viên: <strong id="detailTeacher"></strong></p>
-                                    <p class="mb-1">Học kỳ: <strong id="detailSemester"></strong></p>
-                                    <p class="mb-1">Năm học: <strong id="detailAcademicYear"></strong></p>
+                                    <h6 class="text-uppercase text-muted">{{ _('classes.general_info') }}</h6>
+                                    <p class="mb-1">{{ _('class.teacher') }}: <strong id="detailTeacher"></strong></p>
+                                    <p class="mb-1">{{ _('classes.semester') }}: <strong id="detailSemester"></strong></p>
+                                    <p class="mb-1">{{ _('classes.academic_year') }}: <strong id="detailAcademicYear"></strong></p>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="border rounded p-3 h-100">
-                                    <h6 class="text-uppercase text-muted">Tình trạng</h6>
-                                    <p class="mb-1">Số sinh viên: <strong id="detailStudentCount"></strong></p>
-                                    <p class="mb-1">Ngày tạo: <strong id="detailCreated"></strong></p>
-                                    <p class="mb-1">Cập nhật: <strong id="detailUpdated"></strong></p>
+                                    <h6 class="text-uppercase text-muted">{{ _('classes.status_info') }}</h6>
+                                    <p class="mb-1">{{ _('classes.student_count') }}: <strong id="detailStudentCount"></strong></p>
+                                    <p class="mb-1">{{ _('classes.created_at') }}: <strong id="detailCreated"></strong></p>
+                                    <p class="mb-1">{{ _('classes.updated_at') }}: <strong id="detailUpdated"></strong></p>
                                 </div>
                             </div>
                         </div>
                         <div class="mt-3">
-                            <h6 class="text-uppercase text-muted">Mô tả</h6>
+                            <h6 class="text-uppercase text-muted">{{ _('classes.description') }}</h6>
                             <p id="detailDescription" class="mb-0 text-pre-wrap"></p>
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('common.close') }}</button>
                 </div>
             </div>
         </div>
@@ -521,46 +521,46 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">
-                        <i class="fas fa-eye me-2"></i>Thông tin lớp tín chỉ
+                        <i class="fas fa-eye me-2"></i>{{ _('classes.credit_class_detail') }}
                     </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _('common.close') }}"></button>
                 </div>
                 <div class="modal-body">
                     <div id="creditClassDetailLoading" class="text-center py-4">
                         <div class="spinner-border text-primary" role="status"></div>
-                        <p class="mt-2 text-muted">Đang tải dữ liệu...</p>
+                        <p class="mt-2 text-muted">{{ _('classes.loading_data') }}</p>
                     </div>
                     <div id="creditClassDetailError" class="alert alert-danger d-none"></div>
                     <div id="creditClassDetailContent" class="d-none">
                         <div class="mb-3">
                             <h4 id="detailCreditSubject" class="mb-0"></h4>
-                            <small class="text-muted">Mã lớp: <span id="detailCreditCode"></span></small>
+                            <small class="text-muted">{{ _('class.class_code') }}: <span id="detailCreditCode"></span></small>
                         </div>
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <div class="border rounded p-3 h-100">
-                                    <h6 class="text-uppercase text-muted">Giảng viên phụ trách</h6>
+                                    <h6 class="text-uppercase text-muted">{{ _('classes.teacher_in_charge') }}</h6>
                                     <p class="mb-1"><strong id="detailCreditTeacher"></strong></p>
-                                    <p class="mb-1">Học kỳ: <strong id="detailCreditSemester"></strong></p>
-                                    <p class="mb-1">Năm học: <strong id="detailCreditAcademicYear"></strong></p>
+                                    <p class="mb-1">{{ _('classes.semester') }}: <strong id="detailCreditSemester"></strong></p>
+                                    <p class="mb-1">{{ _('classes.academic_year') }}: <strong id="detailCreditAcademicYear"></strong></p>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="border rounded p-3 h-100">
-                                    <h6 class="text-uppercase text-muted">Thông tin khác</h6>
-                                    <p class="mb-1">Phòng học: <strong id="detailCreditRoom"></strong></p>
-                                    <p class="mb-1">Trạng thái: <strong id="detailCreditStatus"></strong></p>
+                                    <h6 class="text-uppercase text-muted">{{ _('classes.other_info') }}</h6>
+                                    <p class="mb-1">{{ _('classes.room') }}: <strong id="detailCreditRoom"></strong></p>
+                                    <p class="mb-1">{{ _('classes.status') }}: <strong id="detailCreditStatus"></strong></p>
                                 </div>
                             </div>
                         </div>
                         <div class="mt-3">
-                            <h6 class="text-uppercase text-muted">Ghi chú</h6>
+                            <h6 class="text-uppercase text-muted">{{ _('classes.notes') }}</h6>
                             <p id="detailCreditNotes" class="mb-0 text-pre-wrap"></p>
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('common.close') }}</button>
                 </div>
             </div>
         </div>
@@ -572,27 +572,27 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">
-                        <i class="fas fa-users me-2"></i>Sinh viên trong lớp
+                        <i class="fas fa-users me-2"></i>{{ _('classes.students_in_class') }}
                     </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _('common.close') }}"></button>
                 </div>
                 <div class="modal-body">
                     <div id="classStudentsLoading" class="text-center py-4">
                         <div class="spinner-border text-primary" role="status"></div>
-                        <p class="mt-2 text-muted">Đang tải danh sách sinh viên...</p>
+                        <p class="mt-2 text-muted">{{ _('classes.loading_students') }}</p>
                     </div>
                     <div id="classStudentsError" class="alert alert-danger d-none"></div>
                     <div id="classStudentsEmpty" class="alert alert-info d-none">
-                        <i class="fas fa-info-circle me-2"></i>Chưa có sinh viên nào trong lớp này.
+                        <i class="fas fa-info-circle me-2"></i>{{ _('classes.no_students_in_class') }}
                     </div>
                     <div id="classStudentsContent" class="table-responsive d-none">
                         <table class="table table-striped">
                             <thead>
                                 <tr>
-                                    <th>Mã SV</th>
-                                    <th>Họ tên</th>
-                                    <th>Email</th>
-                                    <th>SĐT</th>
+                                    <th>{{ _('student.student_code') }}</th>
+                                    <th>{{ _('student.full_name') }}</th>
+                                    <th>{{ _('student.email') }}</th>
+                                    <th>{{ _('student.phone') }}</th>
                                 </tr>
                             </thead>
                             <tbody id="classStudentsTable"></tbody>
@@ -601,7 +601,7 @@
                 </div>
                 <div class="modal-footer">
                     <small class="text-muted me-auto" id="classStudentsCounter"></small>
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('common.close') }}</button>
                 </div>
             </div>
         </div>
@@ -613,47 +613,47 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">
-                        <i class="fas fa-chart-bar me-2"></i>Thống kê lớp học
+                        <i class="fas fa-chart-bar me-2"></i>{{ _('classes.class_statistics') }}
                     </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _('common.close') }}"></button>
                 </div>
                 <div class="modal-body">
                     <div id="classStatsLoading" class="text-center py-4">
                         <div class="spinner-border text-primary" role="status"></div>
-                        <p class="mt-2 text-muted">Đang tải thống kê...</p>
+                        <p class="mt-2 text-muted">{{ _('classes.loading_stats') }}</p>
                     </div>
                     <div id="classStatsError" class="alert alert-danger d-none"></div>
                     <div id="classStatsContent" class="d-none">
                         <div class="row g-3 mb-3">
                             <div class="col-md-4">
                                 <div class="border rounded p-3 text-center h-100">
-                                    <p class="text-muted mb-1">Tổng sinh viên</p>
+                                    <p class="text-muted mb-1">{{ _('reports.total_students') }}</p>
                                     <h4 id="statsTotalStudents" class="mb-0"></h4>
                                 </div>
                             </div>
                             <div class="col-md-4">
                                 <div class="border rounded p-3 text-center h-100">
-                                    <p class="text-muted mb-1">Đã điểm danh</p>
+                                    <p class="text-muted mb-1">{{ _('reports.total_present') }}</p>
                                     <h4 id="statsAttended" class="mb-0"></h4>
                                 </div>
                             </div>
                             <div class="col-md-4">
                                 <div class="border rounded p-3 text-center h-100">
-                                    <p class="text-muted mb-1">Tỷ lệ điểm danh</p>
+                                    <p class="text-muted mb-1">{{ _('reports.attendance_rate') }}</p>
                                     <h4 id="statsRate" class="mb-0"></h4>
                                 </div>
                             </div>
                         </div>
                         <div class="mb-2">
-                            <small class="text-muted">Khoảng thời gian: <span id="statsPeriod"></span></small>
+                            <small class="text-muted">{{ _('classes.time_period') }}: <span id="statsPeriod"></span></small>
                         </div>
                         <div class="table-responsive">
                             <table class="table table-sm">
                                 <thead>
                                     <tr>
-                                        <th>Ngày</th>
-                                        <th>Tổng lượt điểm danh</th>
-                                        <th>Sinh viên</th>
+                                        <th>{{ _('classes.date') }}</th>
+                                        <th>{{ _('classes.total_attendance') }}</th>
+                                        <th>{{ _('student.title') }}</th>
                                     </tr>
                                 </thead>
                                 <tbody id="statsDailyTable"></tbody>
@@ -662,7 +662,7 @@
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('common.close') }}</button>
                 </div>
             </div>
         </div>

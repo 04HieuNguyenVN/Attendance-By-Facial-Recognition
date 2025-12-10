@@ -3,9 +3,9 @@
     class="card-header bg-dark text-white d-flex justify-content-between align-items-center"
   >
     <h5 class="card-title mb-0">
-      <i class="fas fa-clipboard-list me-2"></i>Phiên điểm danh lớp tín chỉ
+      <i class="fas fa-clipboard-list me-2"></i>{{ _('attendance.credit_session') }}
     </h5>
-    <span class="badge bg-secondary" id="session-status-pill">Đang đóng</span>
+    <span class="badge bg-secondary" id="session-status-pill">{{ _('attendance.session_closed') }}</span>
   </div>
   <div class="card-body">
     <div
@@ -17,17 +17,17 @@
     <div id="session-form-container">
       <div class="mb-3">
         <label for="credit-class-select" class="form-label"
-          >Chọn lớp tín chỉ</label
+          >{{ _('attendance.select_credit_class') }}</label
         >
         <select id="credit-class-select" class="form-select">
-          <option value="">-- Đang tải danh sách lớp --</option>
+          <option value="">-- {{ _('attendance.loading_classes') }} --</option>
         </select>
       </div>
       <button id="open-session-btn" class="btn btn-primary w-100">
-        <i class="fas fa-play-circle me-2"></i>Mở phiên trong 15 phút
+        <i class="fas fa-play-circle me-2"></i>{{ _('attendance.open_session_btn') }}
       </button>
       <p class="text-muted small mt-2 mb-0">
-        Phiên điểm danh sẽ tự động đóng sau khi hết thời gian giới hạn.
+        {{ _('attendance.session_auto_close') }}
       </p>
     </div>
 
@@ -42,15 +42,15 @@
       <ul class="session-meta list-unstyled mb-3">
         <li>
           <i class="fas fa-door-open me-2 text-success"></i>
-          Mở lúc <span id="session-opened-at">--</span>
+          {{ _('attendance.opened_at') }} <span id="session-opened-at">--</span>
         </li>
         <li>
           <i class="fas fa-hourglass-end me-2 text-warning"></i>
-          Đóng lúc <span id="session-deadline">--</span>
+          {{ _('attendance.closes_at') }} <span id="session-deadline">--</span>
         </li>
       </ul>
       <button id="close-session-btn" class="btn btn-outline-danger w-100">
-        <i class="fas fa-stop-circle me-2"></i>Đóng phiên ngay
+        <i class="fas fa-stop-circle me-2"></i>{{ _('attendance.close_session_btn') }}
       </button>
     </div>
   </div>

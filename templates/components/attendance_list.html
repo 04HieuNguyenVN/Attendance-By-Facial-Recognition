@@ -3,7 +3,7 @@
     class="card-header bg-success text-white d-flex justify-content-between align-items-center"
   >
     <h5 class="card-title mb-0">
-      <i class="fas fa-list-check me-2"></i>Danh sách điểm danh hôm nay
+      <i class="fas fa-list-check me-2"></i>{{ _('attendance.list_title') }}
     </h5>
     <span class="badge bg-light text-dark" id="attendance-count"
       >{{ attendance|length if attendance else 0 }}</span
@@ -15,11 +15,11 @@
         <thead class="table-light">
           <tr>
             <th>#</th>
-            <th>Họ tên</th>
-            <th>Giờ vào</th>
-            <th>Thời gian có mặt</th>
-            <th>Trạng thái</th>
-            <th>Hành động</th>
+            <th>{{ _('attendance.full_name') }}</th>
+            <th>{{ _('attendance.time_in') }}</th>
+            <th>{{ _('attendance.duration') }}</th>
+            <th>{{ _('common.status') }}</th>
+            <th>{{ _('common.actions') }}</th>
           </tr>
         </thead>
         <tbody id="attendance-table-body">
@@ -36,7 +36,7 @@
                 </div>
                 <div>
                   <div class="fw-bold">
-                    {{ row.full_name if row.full_name else "Không có tên" }}
+                    {{ row.full_name if row.full_name else _('common.no_name') }}
                   </div>
                   <small class="text-muted"
                     >ID: {{ row.student_id if row.student_id else "N/A"
@@ -60,7 +60,7 @@
               </div>
               <small class="text-muted">
                 {% if row.checkout_time %}
-                <i class="fas fa-sign-out-alt me-1"></i>Ra: {{
+                <i class="fas fa-sign-out-alt me-1"></i>{{ _('attendance.time_out') }}: {{
                 row.checkout_time[11:19] }} {% endif %}
               </small>
             </td>
@@ -71,9 +71,9 @@
               >
                 <i class="fas fa-hourglass-half me-1"></i>
                 {% if row.duration_minutes %} {% if row.duration_minutes >= 60
-                %} {{ (row.duration_minutes // 60) }}h {{ (row.duration_minutes
-                % 60) }}p {% else %} {{ row.duration_minutes }} phút {% endif %}
-                {% else %} 0 phút {% endif %}
+                %} {{ (row.duration_minutes // 60) }}{{ _('attendance.hours') }} {{ (row.duration_minutes
+                % 60) }}{{ _('attendance.minutes') }} {% else %} {{ row.duration_minutes }} {{ _('attendance.minutes') }} {% endif %}
+                {% else %} 0 {{ _('attendance.minutes') }} {% endif %}
               </span>
             </td>
             <td>
@@ -81,12 +81,12 @@
                 class="badge {% if row.status == 'Đang có mặt' %}bg-success{% elif row.status == 'Đã rời' %}bg-secondary{% else %}bg-warning{% endif %} status-badge"
               >
                 {% if row.status == 'Đang có mặt' %}
-                <i class="fas fa-user-check me-1"></i>
+                <i class="fas fa-user-check me-1"></i>{{ _('attendance.status_present') }}
                 {% elif row.status == 'Đã rời' %}
-                <i class="fas fa-sign-out-alt me-1"></i>
+                <i class="fas fa-sign-out-alt me-1"></i>{{ _('attendance.status_left') }}
                 {% else %}
-                <i class="fas fa-user-clock me-1"></i>
-                {% endif %} {{ row.status }}
+                <i class="fas fa-user-clock me-1"></i>{{ row.status }}
+                {% endif %}
               </span>
             </td>
             <td>
@@ -95,7 +95,7 @@
                 class="btn btn-sm btn-outline-primary js-view-details"
                 data-student-id="{{ row.student_id }}"
                 data-student-name="{{ (row.full_name if row.full_name else 'N/A')|e }}"
-                title="Xem chi tiết"
+                title="{{ _('common.view_details') }}"
               >
                 <i class="fas fa-eye"></i>
               </button>
@@ -106,10 +106,9 @@
             <td colspan="6">
               <div class="text-center py-5">
                 <i class="fas fa-user-times fa-3x text-muted mb-3"></i>
-                <h5 class="text-muted">Chưa có sinh viên nào điểm danh</h5>
+                <h5 class="text-muted">{{ _('attendance.no_attendance_yet') }}</h5>
                 <p class="text-muted">
-                  Hệ thống sẽ tự động nhận diện và điểm danh khi có sinh viên
-                  xuất hiện trước camera.
+                  {{ _('attendance.auto_recognize_hint') }}
                 </p>
               </div>
             </td>

@@ -36,3 +36,6 @@ reportlab>=4.0.0
 
 # Utilities
 colorama>=0.4.6
+
+# Internationalization (i18n)
+Flask-Babel>=4.0.0

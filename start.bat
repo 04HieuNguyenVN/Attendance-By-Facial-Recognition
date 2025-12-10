@@ -12,6 +12,6 @@ echo Truy cap: http://localhost:5000
 echo Nhan Ctrl+C de dung
 echo.
 
-.venv\Scripts\python.exe app.py
+.venv\Scripts\python.exe run.py
 
 pause

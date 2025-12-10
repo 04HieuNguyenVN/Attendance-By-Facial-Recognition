@@ -1,20 +1,20 @@
 
 <div class="card shadow-sm">
   <div class="card-header">
-    <h5 class="card-title mb-0"><i class="fas fa-server me-2"></i>Trạng thái hệ thống</h5>
+    <h5 class="card-title mb-0"><i class="fas fa-server me-2"></i>{{ _('system.status') }}</h5>
   </div>
   <div class="card-body">
     <div id="system-status" class="d-flex align-items-center">
       <div class="status-indicator active me-2"></div>
-      <div id="camera-status-text">Camera đang hoạt động</div>
+      <div id="camera-status-text">{{ _('camera.connected') }}</div>
     </div>
     <hr />
     <div id="active-presence-section">
-      <h6><i class="fas fa-users-between-lines me-2"></i>Đang có mặt</h6>
+      <h6><i class="fas fa-users-between-lines me-2"></i>{{ _('attendance.status_present') }}</h6>
       <div id="active-presence-list" class="mt-2">
         <div class="text-center text-muted">
           <i class="fas fa-user-clock fa-2x mb-2"></i>
-          <p>Chưa có sinh viên nào.</p>
+          <p>{{ _('attendance.no_attendance_yet') }}</p>
         </div>
       </div>
     </div>

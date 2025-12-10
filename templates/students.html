@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% set active_page = 'students' %}
 
-{% block title %}Quản lý sinh viên - Hệ thống điểm danh thông minh{% endblock %}
+{% block title %}{{ _('nav.students') }} - {{ _('app_name') }}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -24,15 +24,15 @@
     <div class="col-12">
         <div class="d-flex justify-content-between align-items-center">
             <div>
-                <h2><i class="fas fa-users me-2"></i>Quản lý sinh viên</h2>
-                <p class="text-muted mb-0">Thêm, sửa, xóa và quản lý thông tin sinh viên</p>
+                <h2><i class="fas fa-users me-2"></i>{{ _('nav.students') }}</h2>
+                <p class="text-muted mb-0">{{ _('student.manage_desc') }}</p>
             </div>
             <div>
                 <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addStudentModal">
-                    <i class="fas fa-plus me-1"></i>Thêm sinh viên
+                    <i class="fas fa-plus me-1"></i>{{ _('student.add_student') }}
                 </button>
                 <button class="btn btn-success" onclick="refreshStudents()">
-                    <i class="fas fa-sync-alt me-1"></i>Làm mới
+                    <i class="fas fa-sync-alt me-1"></i>{{ _('common.refresh_btn') }}
                 </button>
             </div>
         </div>
@@ -44,19 +44,19 @@
             <div class="col-md-6">
                 <div class="input-group">
                     <span class="input-group-text"><i class="fas fa-search"></i></span>
-                    <input type="text" class="form-control" id="searchInput" placeholder="Tìm kiếm sinh viên...">
+                    <input type="text" class="form-control" id="searchInput" placeholder="{{ _('student.search_placeholder') }}">
                 </div>
             </div>
             <div class="col-md-3">
-                <select class="form-select" id="classFilter" aria-label="Lọc theo lớp">
-                    <option value="">Tất cả lớp</option>
+                <select class="form-select" id="classFilter" aria-label="{{ _('student.filter_class') }}">
+                    <option value="">{{ _('student.all_classes') }}</option>
                 </select>
             </div>
             <div class="col-md-3">
-                <select class="form-select" id="statusFilter" aria-label="Lọc theo trạng thái">
-                    <option value="">Tất cả trạng thái</option>
-                    <option value="active">Hoạt động</option>
-                    <option value="inactive">Không hoạt động</option>
+                <select class="form-select" id="statusFilter" aria-label="{{ _('student.filter_status') }}">
+                    <option value="">{{ _('student.all_statuses') }}</option>
+                    <option value="active">{{ _('student.active') }}</option>
+                    <option value="inactive">{{ _('student.inactive') }}</option>
                 </select>
             </div>
         </div>
@@ -67,7 +67,7 @@
                 <div class="card">
                     <div class="card-header bg-primary text-white">
                         <h5 class="card-title mb-0">
-                            <i class="fas fa-list me-2"></i>Danh sách sinh viên
+                            <i class="fas fa-list me-2"></i>{{ _('student.list_title') }}
                             <span class="badge bg-light text-dark ms-2" id="studentCount">0</span>
                         </h5>
                     </div>
@@ -77,13 +77,13 @@
                                 <thead class="table-light">
                                     <tr>
                                         <th width="5%">#</th>
-                                        <th width="15%">Mã SV</th>
-                                        <th width="25%">Họ tên</th>
-                                        <th width="15%">Lớp</th>
-                                        <th width="15%">Email</th>
-                                        <th width="10%">SĐT</th>
-                                        <th width="10%">Trạng thái</th>
-                                        <th width="5%">Hành động</th>
+                                        <th width="15%">{{ _('student.student_id') }}</th>
+                                        <th width="25%">{{ _('student.full_name') }}</th>
+                                        <th width="15%">{{ _('student.class') }}</th>
+                                        <th width="15%">{{ _('student.email') }}</th>
+                                        <th width="10%">{{ _('student.phone') }}</th>
+                                        <th width="10%">{{ _('common.status') }}</th>
+                                        <th width="5%">{{ _('common.actions') }}</th>
                                     </tr>
                                 </thead>
                                 <tbody id="studentsTableBody">
@@ -103,7 +103,7 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">
-                        <i class="fas fa-user-plus me-2"></i>Thêm sinh viên mới
+                        <i class="fas fa-user-plus me-2"></i>{{ _('student.add_new') }}
                     </h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
@@ -111,50 +111,50 @@
                     <div class="modal-body">
                         <div class="row">
                             <div class="col-md-6 mb-3">
-                                <label for="studentId" class="form-label">Mã sinh viên <span class="text-danger">*</span></label>
+                                <label for="studentId" class="form-label">{{ _('student.student_id') }} <span class="text-danger">*</span></label>
                                 <input type="text" class="form-control" id="studentId" name="student_id" required>
                             </div>
                             <div class="col-md-6 mb-3">
-                                <label for="fullName" class="form-label">Họ và tên <span class="text-danger">*</span></label>
+                                <label for="fullName" class="form-label">{{ _('student.full_name') }} <span class="text-danger">*</span></label>
                                 <input type="text" class="form-control" id="fullName" name="full_name" required>
                             </div>
                         </div>
                         <div class="row">
                             <div class="col-md-6 mb-3">
-                                <label for="email" class="form-label">Email</label>
+                                <label for="email" class="form-label">{{ _('student.email') }}</label>
                                 <input type="email" class="form-control" id="email" name="email">
                             </div>
                             <div class="col-md-6 mb-3">
-                                <label for="phone" class="form-label">Số điện thoại</label>
+                                <label for="phone" class="form-label">{{ _('student.phone') }}</label>
                                 <input type="tel" class="form-control" id="phone" name="phone">
                             </div>
                         </div>
                         <div class="row">
                             <div class="col-md-6 mb-3">
-                                <label for="className" class="form-label">Lớp</label>
+                                <label for="className" class="form-label">{{ _('student.class') }}</label>
                                 <select class="form-select" id="className" name="class_name">
-                                    <option value="">Chọn lớp</option>
+                                    <option value="">{{ _('student.select_class') }}</option>
                                 </select>
                             </div>
                             <div class="col-md-6 mb-3">
-                                <label for="faceImage" class="form-label">Ảnh khuôn mặt (tối thiểu 3 ảnh)</label>
+                                <label for="faceImage" class="form-label">{{ _('student.face_image') }}</label>
                                 <input type="file" class="form-control" id="faceImage" name="face_images" accept="image/*" multiple required>
-                                <div class="form-text">Chọn ít nhất 3 ảnh chụp ở các góc khác nhau. Có thể giữ Ctrl/Shift để chọn nhiều ảnh.</div>
+                                <div class="form-text">{{ _('student.face_image_hint') }}</div>
                             </div>
                         </div>
                         <div class="row">
                             <div class="col-12">
                                 <div class="alert alert-info">
                                     <i class="fas fa-info-circle me-2"></i>
-                                    <strong>Lưu ý:</strong> Sau khi thêm sinh viên, hệ thống sẽ tự động xử lý ảnh khuôn mặt để nhận diện.
+                                    <strong>{{ _('common.note') }}:</strong> {{ _('student.add_note') }}
                                 </div>
                             </div>
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('common.cancel') }}</button>
                         <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-save me-1"></i>Lưu sinh viên
+                            <i class="fas fa-save me-1"></i>{{ _('student.save_student') }}
                         </button>
                     </div>
                 </form>
@@ -168,7 +168,7 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">
-                        <i class="fas fa-user-edit me-2"></i>Chỉnh sửa sinh viên
+                        <i class="fas fa-user-edit me-2"></i>{{ _('student.edit_student') }}
                     </h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
@@ -177,47 +177,47 @@
                         <input type="hidden" id="editStudentId" name="student_id">
                         <div class="row">
                             <div class="col-md-6 mb-3">
-                                <label for="editFullName" class="form-label">Họ và tên <span class="text-danger">*</span></label>
+                                <label for="editFullName" class="form-label">{{ _('student.full_name') }} <span class="text-danger">*</span></label>
                                 <input type="text" class="form-control" id="editFullName" name="full_name" required>
                             </div>
                             <div class="col-md-6 mb-3">
-                                <label for="editEmail" class="form-label">Email</label>
+                                <label for="editEmail" class="form-label">{{ _('student.email') }}</label>
                                 <input type="email" class="form-control" id="editEmail" name="email">
                             </div>
                         </div>
                         <div class="row">
                             <div class="col-md-6 mb-3">
-                                <label for="editPhone" class="form-label">Số điện thoại</label>
+                                <label for="editPhone" class="form-label">{{ _('student.phone') }}</label>
                                 <input type="tel" class="form-control" id="editPhone" name="phone">
                             </div>
                             <div class="col-md-6 mb-3">
-                                <label for="editClassName" class="form-label">Lớp</label>
+                                <label for="editClassName" class="form-label">{{ _('student.class') }}</label>
                                 <select class="form-select" id="editClassName" name="class_name">
-                                    <option value="">Chọn lớp</option>
+                                    <option value="">{{ _('student.select_class') }}</option>
                                 </select>
                             </div>
                         </div>
                         <div class="row">
                             <div class="col-md-6 mb-3">
-                                <label for="editFaceImage" class="form-label">Ảnh khuôn mặt mới</label>
+                                <label for="editFaceImage" class="form-label">{{ _('student.new_face_image') }}</label>
                                 <input type="file" class="form-control" id="editFaceImage" name="face_images" accept="image/*" multiple>
-                                <div class="form-text">Chọn tối thiểu 3 ảnh nếu cần cập nhật khuôn mặt. Có thể giữ Ctrl/Shift để chọn nhiều ảnh.</div>
+                                <div class="form-text">{{ _('student.edit_face_image_hint') }}</div>
                             </div>
                             <div class="col-md-6 mb-3">
-                                <label class="form-label">Trạng thái</label>
+                                <label class="form-label">{{ _('common.status') }}</label>
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" id="editIsActive" name="is_active" checked>
                                     <label class="form-check-label" for="editIsActive">
-                                        Hoạt động
+                                        {{ _('student.active') }}
                                     </label>
                                 </div>
                             </div>
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('common.cancel') }}</button>
                         <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-save me-1"></i>Cập nhật
+                            <i class="fas fa-save me-1"></i>{{ _('common.update') }}
                         </button>
                     </div>
                 </form>
@@ -231,21 +231,21 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title text-danger">
-                        <i class="fas fa-exclamation-triangle me-2"></i>Xác nhận xóa
+                        <i class="fas fa-exclamation-triangle me-2"></i>{{ _('common.confirm_delete') }}
                     </h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <p>Bạn có chắc chắn muốn xóa sinh viên <strong id="deleteStudentName"></strong>?</p>
+                    <p>{{ _('student.delete_confirm') }} <strong id="deleteStudentName"></strong>?</p>
                     <div class="alert alert-warning">
                         <i class="fas fa-warning me-2"></i>
-                        <strong>Cảnh báo:</strong> Hành động này không thể hoàn tác. Tất cả dữ liệu điểm danh của sinh viên sẽ bị ảnh hưởng.
+                        <strong>{{ _('common.warning') }}:</strong> {{ _('student.delete_warning') }}
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _('common.cancel') }}</button>
                     <button type="button" class="btn btn-danger" id="confirmDeleteBtn">
-                        <i class="fas fa-trash me-1"></i>Xóa sinh viên
+                        <i class="fas fa-trash me-1"></i>{{ _('student.delete_student') }}
                     </button>
                 </div>
             </div>
@@ -253,6 +253,28 @@
     </div>
 
     <script>
+        // Translations for JavaScript
+        const i18n = {
+            allClasses: "{{ _('student.all_classes') }}",
+            selectClass: "{{ _('student.select_class') }}",
+            noClassName: "{{ _('student.no_class_name') }}",
+            noEmail: "{{ _('student.no_email') }}",
+            notAssigned: "{{ _('student.not_assigned') }}",
+            active: "{{ _('student.active') }}",
+            inactive: "{{ _('student.inactive') }}",
+            edit: "{{ _('common.edit') }}",
+            delete: "{{ _('common.delete') }}",
+            loadError: "{{ _('messages.load_error') }}",
+            addSuccess: "{{ _('messages.add_success') }}",
+            updateSuccess: "{{ _('messages.update_success') }}",
+            deleteSuccess: "{{ _('messages.delete_success') }}",
+            addError: "{{ _('messages.add_error') }}",
+            updateError: "{{ _('messages.update_error') }}",
+            deleteError: "{{ _('messages.delete_error') }}",
+            minFaceWarning: "{{ _('student.min_face_warning') }}",
+            sv: "{{ _('student.sv') }}"
+        };
+
         class StudentManager {
             constructor() {
                 this.students = [];
@@ -315,7 +337,7 @@
                     this.updateStudentCount();
                 } catch (error) {
                     console.error('Error loading students:', error);
-                    this.showNotification('Lỗi khi tải danh sách sinh viên', 'error');
+                    this.showNotification(i18n.loadError, 'error');
                 }
             }
 
@@ -350,23 +372,23 @@
                 this.populateSelect(
                     document.getElementById('classFilter'),
                     this.classes,
-                    { includeAll: true, label: 'Tất cả lớp', showCounts: true }
+                    { includeAll: true, label: i18n.allClasses, showCounts: true }
                 );
                 this.populateSelect(
                     document.getElementById('className'),
                     this.classes,
-                    { label: 'Chọn lớp' }
+                    { label: i18n.selectClass }
                 );
                 this.populateSelect(
                     document.getElementById('editClassName'),
                     this.classes,
-                    { label: 'Chọn lớp' }
+                    { label: i18n.selectClass }
                 );
             }
 
             populateSelect(selectEl, classes, options = {}) {
                 if (!selectEl) return;
-                const { label = 'Chọn lớp', showCounts = false } = options;
+                const { label = i18n.selectClass, showCounts = false } = options;
                 const previousValue = selectEl.value;
                 selectEl.innerHTML = '';
 
@@ -378,12 +400,12 @@
                 classes.forEach((cls) => {
                     const option = document.createElement('option');
                     option.value = cls.class_name || cls.class_code || '';
-                    const pieces = [cls.class_name || cls.class_code || 'Không tên'];
+                    const pieces = [cls.class_name || cls.class_code || i18n.noClassName];
                     if (cls.class_code && cls.class_code !== cls.class_name) {
                         pieces.push(cls.class_code);
                     }
                     if (showCounts && typeof cls.student_count === 'number') {
-                        pieces.push(`${cls.student_count} SV`);
+                        pieces.push(`${cls.student_count} ${i18n.sv}`);
                     }
                     option.textContent = pieces.join(' • ');
                     selectEl.appendChild(option);
@@ -433,26 +455,26 @@
                                 </div>
                                 <div>
                                     <div class="fw-bold">${student.full_name}</div>
-                                    <small class="text-muted">${student.email || 'Chưa có email'}</small>
+                                    <small class="text-muted">${student.email || i18n.noEmail}</small>
                                 </div>
                             </div>
                         </td>
                         <td>
-                            <span class="badge bg-info">${student.class_name || 'Chưa phân lớp'}</span>
+                            <span class="badge bg-info">${student.class_name || i18n.notAssigned}</span>
                         </td>
                         <td>${student.email || '-'}</td>
                         <td>${student.phone || '-'}</td>
                         <td>
                             <span class="badge ${student.is_active ? 'bg-success' : 'bg-secondary'}">
-                                ${student.is_active ? 'Hoạt động' : 'Không hoạt động'}
+                                ${student.is_active ? i18n.active : i18n.inactive}
                             </span>
                         </td>
                         <td>
                             <div class="btn-group btn-group-sm">
-                                <button class="btn btn-outline-primary" onclick="studentManager.editStudent('${student.student_id}')" title="Chỉnh sửa">
+                                <button class="btn btn-outline-primary" onclick="studentManager.editStudent('${student.student_id}')" title="${i18n.edit}">
                                     <i class="fas fa-edit"></i>
                                 </button>
-                                <button class="btn btn-outline-danger" onclick="studentManager.confirmDelete('${student.student_id}', '${student.full_name}')" title="Xóa">
+                                <button class="btn btn-outline-danger" onclick="studentManager.confirmDelete('${student.student_id}', '${student.full_name}')" title="${i18n.delete}">
                                     <i class="fas fa-trash"></i>
                                 </button>
                             </div>
@@ -474,7 +496,7 @@
                 const faceInput = document.getElementById('faceImage');
                 const selectedFaces = faceInput && faceInput.files ? faceInput.files.length : 0;
                 if (selectedFaces < this.minFaceSamples) {
-                    this.showNotification(`Vui lòng chọn tối thiểu ${this.minFaceSamples} ảnh khuôn mặt để thêm sinh viên.`, 'warning');
+                    this.showNotification(i18n.minFaceWarning.replace('{n}', this.minFaceSamples), 'warning');
                     faceInput && faceInput.focus();
                     return;
                 }
@@ -494,12 +516,12 @@
                     }
 
                     if (!response.ok || (result && result.success === false)) {
-                        const message = (result && (result.message || result.error)) || 'Không thể thêm sinh viên';
+                        const message = (result && (result.message || result.error)) || i18n.addError;
                         throw new Error(message);
                     }
 
                     const credentials = result && result.credentials ? result.credentials : null;
-                    this.showNotification('Thêm sinh viên thành công!', 'success');
+                    this.showNotification(i18n.addSuccess, 'success');
                     bootstrap.Modal.getInstance(document.getElementById('addStudentModal')).hide();
                     form.reset();
                     await this.loadStudents();
@@ -510,7 +532,7 @@
                     }
                 } catch (error) {
                     console.error('Error adding student:', error);
-                    this.showNotification('Lỗi khi thêm sinh viên: ' + error.message, 'error');
+                    this.showNotification(i18n.addError + ': ' + error.message, 'error');
                 }
             }
 
@@ -538,7 +560,7 @@
                 const faceInput = document.getElementById('editFaceImage');
                 const selectedFaces = faceInput && faceInput.files ? faceInput.files.length : 0;
                 if (selectedFaces > 0 && selectedFaces < this.minFaceSamples) {
-                    this.showNotification(`Vui lòng chọn tối thiểu ${this.minFaceSamples} ảnh khuôn mặt khi cập nhật.`, 'warning');
+                    this.showNotification(i18n.minFaceWarning.replace('{n}', this.minFaceSamples), 'warning');
                     faceInput && faceInput.focus();
                     return;
                 }
@@ -563,17 +585,17 @@
                     }
 
                     if (!response.ok || (result && result.success === false)) {
-                        const message = (result && (result.message || result.error)) || 'Không thể cập nhật sinh viên';
+                        const message = (result && (result.message || result.error)) || i18n.updateError;
                         throw new Error(message);
                     }
 
-                    this.showNotification('Cập nhật sinh viên thành công!', 'success');
+                    this.showNotification(i18n.updateSuccess, 'success');
                     bootstrap.Modal.getInstance(document.getElementById('editStudentModal')).hide();
                     await this.loadStudents();
                     await this.loadClasses(true);
                 } catch (error) {
                     console.error('Error updating student:', error);
-                    this.showNotification('Lỗi khi cập nhật sinh viên: ' + error.message, 'error');
+                    this.showNotification(i18n.updateError + ': ' + error.message, 'error');
                 }
             }
 
@@ -601,14 +623,14 @@
                     }
 
                     if (!response.ok || (result && result.success === false)) {
-                        const message = (result && (result.message || result.error)) || 'Không thể xóa sinh viên';
+                        const message = (result && (result.message || result.error)) || i18n.deleteError;
                         throw new Error(message);
                     }
 
-                    this.showNotification('Xóa sinh viên thành công!', 'success');
+                    this.showNotification(i18n.deleteSuccess, 'success');
                 } catch (error) {
                     console.error('Error deleting student:', error);
-                    this.showNotification('Lỗi khi xóa sinh viên: ' + error.message, 'error');
+                    this.showNotification(i18n.deleteError + ': ' + error.message, 'error');
                 } finally {
                     const modalElement = document.getElementById('deleteStudentModal');
                     const modalInstance = bootstrap.Modal.getInstance(modalElement);

@@ -1,5 +1,5 @@
-{% extends "base.html" %} {% block title %}Báo cáo & Thống kê{% endblock %} {%
-block extra_css %}
+{% extends "base.html" %} {% block title %}{{ _('reports.title') }} - {{
+_('app_name') }}{% endblock %} {% block extra_css %}
 <style>
   .stat-card h3 {
     font-size: 2.2rem;
@@ -13,9 +13,9 @@ block extra_css %}
 </style>
 {% endblock %} {% block content %}
 <div class="container-fluid" id="reports-container">
-  {% set page_title = 'Báo cáo & Thống kê' %} {% set page_subtitle = 'Thống kê
-  điểm danh và các hoạt động trong ngày.' %} {% set page_icon = 'fas
-  fa-chart-line' %} {% include 'components/page_header.html' %}
+  {% set page_title = _('reports.page_title') %} {% set page_subtitle =
+  _('reports.page_subtitle') %} {% set page_icon = 'fas fa-chart-line' %} {%
+  include 'components/page_header.html' %}
 
   <!-- Tab Navigation -->
   <ul class="nav nav-tabs mb-4" role="tablist">
@@ -28,7 +28,8 @@ block extra_css %}
         type="button"
         role="tab"
       >
-        <i class="fas fa-chart-bar me-2"></i>Báo cáo điểm danh
+        <i class="fas fa-chart-bar me-2"></i>{{ _('reports.attendance_report')
+        }}
       </button>
     </li>
   </ul>
@@ -42,18 +43,18 @@ block extra_css %}
           <div class="row g-3 align-items-end">
             <div class="col-lg-4">
               <label for="credit-class-filter" class="form-label fw-semibold"
-                >Lớp tín chỉ</label
+                >{{ _('reports.credit_class') }}</label
               >
               <select id="credit-class-filter" class="form-select">
-                <option value="">Chọn lớp tín chỉ để bắt đầu</option>
+                <option value="">{{ _('reports.select_credit_class') }}</option>
               </select>
             </div>
             <div class="col-lg-4 d-none" id="session-filter-container">
               <label for="session-filter" class="form-label fw-semibold"
-                >Phiên điểm danh</label
+                >{{ _('reports.session') }}</label
               >
               <select id="session-filter" class="form-select" disabled>
-                <option value="">Tất cả phiên hôm nay</option>
+                <option value="">{{ _('reports.all_sessions_today') }}</option>
               </select>
             </div>
             <div class="col-lg-4 col-xl-3 text-lg-end text-start">
@@ -63,7 +64,8 @@ block extra_css %}
                 type="button"
                 disabled
               >
-                <i class="fas fa-sync-alt me-2"></i>Làm mới báo cáo
+                <i class="fas fa-sync-alt me-2"></i>{{
+                _('reports.refresh_report') }}
               </button>
             </div>
           </div>
@@ -71,15 +73,15 @@ block extra_css %}
       </div>
 
       <div id="filter-notice" class="alert alert-info">
-        Chọn lớp tín chỉ để xem báo cáo chi tiết.
+        {{ _('reports.select_class_notice') }}
       </div>
 
       <!-- Loading Spinner -->
       <div id="loading-container" class="text-center py-5">
         <div class="spinner-border text-primary" role="status">
-          <span class="visually-hidden">Đang tải...</span>
+          <span class="visually-hidden">{{ _('common.loading') }}</span>
         </div>
-        <p class="mt-3 text-muted">Đang tải dữ liệu báo cáo...</p>
+        <p class="mt-3 text-muted">{{ _('reports.loading_data') }}</p>
       </div>
 
       <!-- Main Content -->
@@ -94,7 +96,9 @@ block extra_css %}
                     class="d-flex justify-content-between align-items-center"
                   >
                     <div>
-                      <div class="text-white-50 small">Tổng sinh viên</div>
+                      <div class="text-white-50 small">
+                        {{ _('reports.total_students') }}
+                      </div>
                       <h3 class="mb-0" id="total-students">0</h3>
                     </div>
                     <div class="text-white-50">
@@ -111,7 +115,9 @@ block extra_css %}
                     class="d-flex justify-content-between align-items-center"
                   >
                     <div>
-                      <div class="text-white-50 small">Đã điểm danh</div>
+                      <div class="text-white-50 small">
+                        {{ _('student.attended') }}
+                      </div>
                       <h3 class="mb-0" id="attended-students">0</h3>
                     </div>
                     <div class="text-white-50">
@@ -125,14 +131,16 @@ block extra_css %}
               <div class="card stat-card bg-info text-white shadow">
                 <div class="card-body">
                   <div>
-                    <div class="text-white-50 small">Tỷ lệ điểm danh</div>
+                    <div class="text-white-50 small">
+                      {{ _('reports.attendance_rate') }}
+                    </div>
                     <h3 class="mb-0" id="attendance-rate">0%</h3>
                     <div class="progress mt-2 bg-white bg-opacity-25">
                       <div
                         id="attendance-rate-bar"
                         class="progress-bar bg-white progress-bar-initial"
                         role="progressbar"
-                        aria-label="Tỷ lệ điểm danh"
+                        aria-label="{{ _('reports.attendance_rate') }}"
                         aria-valuenow="0"
                         aria-valuemin="0"
                         aria-valuemax="100"
@@ -149,8 +157,12 @@ block extra_css %}
                     class="d-flex justify-content-between align-items-center"
                   >
                     <div>
-                      <div class="text-white-50 small">Thời gian TB</div>
-                      <h3 class="mb-0" id="avg-duration">0 phút</h3>
+                      <div class="text-white-50 small">
+                        {{ _('reports.avg_duration') }}
+                      </div>
+                      <h3 class="mb-0" id="avg-duration">
+                        0 {{ _('attendance.minutes') }}
+                      </h3>
                     </div>
                     <div class="text-white-50">
                       <i class="fas fa-clock fa-3x"></i>
@@ -170,7 +182,8 @@ block extra_css %}
               <div class="card shadow">
                 <div class="card-header bg-success text-white">
                   <h6 class="m-0 font-weight-bold">
-                    <i class="fas fa-sign-in-alt me-2"></i>Sinh viên đang có mặt
+                    <i class="fas fa-sign-in-alt me-2"></i>{{
+                    _('reports.students_present') }}
                   </h6>
                 </div>
                 <div class="card-body p-0">
@@ -181,11 +194,11 @@ block extra_css %}
                     >
                       <thead>
                         <tr>
-                          <th>Mã SV</th>
-                          <th>Họ tên</th>
-                          <th>Thời gian vào</th>
-                          <th>Thời gian có mặt</th>
-                          <th>Hành động</th>
+                          <th>{{ _('student.student_id') }}</th>
+                          <th>{{ _('student.full_name') }}</th>
+                          <th>{{ _('attendance.time_in') }}</th>
+                          <th>{{ _('attendance.duration') }}</th>
+                          <th>{{ _('common.actions') }}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -202,7 +215,8 @@ block extra_css %}
               <div class="card shadow">
                 <div class="card-header bg-danger text-white">
                   <h6 class="m-0 font-weight-bold">
-                    <i class="fas fa-sign-out-alt me-2"></i>Sinh viên đã về
+                    <i class="fas fa-sign-out-alt me-2"></i>{{
+                    _('reports.students_left') }}
                   </h6>
                 </div>
                 <div class="card-body p-0">
@@ -213,12 +227,12 @@ block extra_css %}
                     >
                       <thead>
                         <tr>
-                          <th>Mã SV</th>
-                          <th>Họ tên</th>
-                          <th>Thời gian vào</th>
-                          <th>Thời gian ra</th>
-                          <th>Tổng thời gian</th>
-                          <th>Hành động</th>
+                          <th>{{ _('student.student_id') }}</th>
+                          <th>{{ _('student.full_name') }}</th>
+                          <th>{{ _('attendance.time_in') }}</th>
+                          <th>{{ _('attendance.time_out') }}</th>
+                          <th>{{ _('reports.total_time') }}</th>
+                          <th>{{ _('common.actions') }}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -235,8 +249,83 @@ block extra_css %}
     </div>
   </div>
 </div>
+
+<!-- Modal Chi Tiết Điểm Danh -->
+<div
+  class="modal fade"
+  id="attendanceDetailModal"
+  tabindex="-1"
+  aria-labelledby="attendanceDetailModalLabel"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="attendanceDetailModalLabel">
+          <i class="fas fa-user-clock me-2"></i>{{ _('attendance.details') }}
+        </h5>
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+          aria-label="Close"
+        ></button>
+      </div>
+      <div class="modal-body">
+        <div id="detailContent">
+          <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status">
+              <span class="visually-hidden">{{ _('common.loading') }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          {{ _('common.close') }}
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %} {% block extra_js %}
 <script>
+  // Translations for JavaScript
+  const i18n = {
+    selectCreditClass: "{{ _('reports.select_credit_class') }}",
+    allSessionsToday: "{{ _('reports.all_sessions_today') }}",
+    selectClassNotice: "{{ _('reports.select_class_notice') }}",
+    loadingData: "{{ _('reports.loading_data') }}",
+    noData: "{{ _('common.no_data') }}",
+    minutes: "{{ _('attendance.minutes') }}",
+    unknown: "{{ _('reports.unknown') }}",
+    unknownDate: "{{ _('reports.unknown_date') }}",
+    session: "{{ _('reports.session') }}",
+    classPrefix: "{{ _('reports.class_prefix') }}",
+    viewingReport: "{{ _('reports.viewing_report') }}",
+    currentSession: "{{ _('reports.current_session') }}",
+    noStudentsPresent: "{{ _('reports.no_students_present') }}",
+    noStudentsLeft: "{{ _('reports.no_students_left') }}",
+    notSelected: "{{ _('reports.not_selected') }}",
+    loadError: "{{ _('messages.load_error') }}",
+    loadSessionError: "{{ _('reports.load_session_error') }}",
+    cannotLoadStats: "{{ _('reports.cannot_load_stats') }}",
+    cannotLoadAttendance: "{{ _('reports.cannot_load_attendance') }}",
+    cannotLoadCreditClasses: "{{ _('reports.cannot_load_credit_classes') }}",
+    loadingSessions: "{{ _('reports.loading_sessions') }}",
+    cannotLoadInit: "{{ _('reports.cannot_load_init') }}",
+    viewDetails: "{{ _('common.view_details') }}",
+    attendanceDetails: "Chi tiết điểm danh",
+    noAttendanceHistory: "Chưa có lịch sử điểm danh",
+    studentId: "{{ _('student.student_id') }}",
+    totalRecords: "Tổng số buổi",
+    date: "Ngày",
+    timeIn: "{{ _('attendance.time_in') }}",
+    timeOut: "{{ _('attendance.time_out') }}",
+    duration: "Thời gian",
+  };
+
   document.addEventListener("DOMContentLoaded", () => {
     const REFRESH_INTERVAL = 30000;
     const loadingContainer = document.getElementById("loading-container");
@@ -306,7 +395,7 @@ block extra_css %}
       attendanceSection.classList.toggle("d-none", !visible);
     }
 
-    function resetTables(message = "Chưa có dữ liệu.") {
+    function resetTables(message = i18n.noData) {
       checkedInTableBody.innerHTML = emptyRow(5, message);
       checkedOutTableBody.innerHTML = emptyRow(6, message);
       totalStudentsEl.textContent = 0;
@@ -314,7 +403,7 @@ block extra_css %}
       attendanceRateEl.textContent = "0%";
       attendanceRateBar.style.width = "0%";
       attendanceRateBar.setAttribute("aria-valuenow", 0);
-      avgDurationEl.textContent = "0 phút";
+      avgDurationEl.textContent = `0 ${i18n.minutes}`;
     }
 
     function stopAutoRefresh() {
@@ -331,12 +420,11 @@ block extra_css %}
 
     async function populateCreditClasses() {
       const response = await fetch(`/api/credit-classes?${withTimestamp()}`);
-      if (!response.ok) throw new Error("Không thể tải danh sách lớp tín chỉ");
+      if (!response.ok) throw new Error(i18n.cannotLoadCreditClasses);
       const payload = await response.json();
       const classes = payload.data || [];
 
-      creditClassSelect.innerHTML =
-        '<option value="">Chọn lớp tín chỉ để bắt đầu</option>';
+      creditClassSelect.innerHTML = `<option value="">${i18n.selectCreditClass}</option>`;
       creditClassMap.clear();
 
       (classes || []).forEach((cls) => {
@@ -347,13 +435,13 @@ block extra_css %}
           cls.display_name ||
           cls.subject_name ||
           cls.credit_code ||
-          `Lớp #${cls.id}`;
+          `${i18n.classPrefix}${cls.id}`;
         creditClassSelect.appendChild(option);
       });
     }
 
     function formatSessionLabel(session) {
-      let dateLabel = "Không rõ ngày";
+      let dateLabel = i18n.unknownDate;
       if (session.session_date) {
         const parsed = new Date(session.session_date);
         dateLabel = Number.isNaN(parsed.getTime())
@@ -361,23 +449,22 @@ block extra_css %}
           : parsed.toLocaleDateString("vi-VN");
       }
       const statusLabel = session.status ? session.status.toUpperCase() : "--";
-      return `Phiên ${session.id} · ${dateLabel} · ${statusLabel}`;
+      return `${i18n.session} ${session.id} · ${dateLabel} · ${statusLabel}`;
     }
 
     async function loadSessionsForClass(classId) {
       sessionContainer.classList.remove("d-none");
       sessionSelect.disabled = true;
-      sessionSelect.innerHTML =
-        '<option value="">Tất cả phiên trong ngày</option>';
+      sessionSelect.innerHTML = `<option value="">${i18n.allSessionsToday}</option>`;
 
       try {
         const response = await fetch(
           `/api/reports/credit-classes/${classId}/sessions?${withTimestamp()}`
         );
-        if (!response.ok) throw new Error("Không thể tải phiên điểm danh");
+        if (!response.ok) throw new Error(i18n.loadSessionError);
         const payload = await response.json();
         if (!payload.success)
-          throw new Error(payload.message || "Lỗi tải phiên");
+          throw new Error(payload.message || i18n.loadSessionError);
 
         const sessions = payload.sessions || [];
         sessions.forEach((session) => {
@@ -390,10 +477,7 @@ block extra_css %}
         sessionSelect.disabled = false;
       } catch (error) {
         console.error(error);
-        setFilterNotice(
-          "Không thể tải danh sách phiên. Vui lòng thử lại hoặc chọn lớp khác.",
-          "warning"
-        );
+        setFilterNotice(i18n.loadSessionError, "warning");
       }
     }
 
@@ -403,7 +487,7 @@ block extra_css %}
       }
 
       isLoadingData = true;
-      setFilterNotice("Đang tải dữ liệu báo cáo...", "secondary");
+      setFilterNotice(i18n.loadingData, "secondary");
 
       const params = new URLSearchParams();
       params.set("credit_class_id", currentCreditClassId);
@@ -416,7 +500,7 @@ block extra_css %}
           `/api/statistics?${withTimestamp(params)}`,
           { headers: { "Cache-Control": "no-cache" } }
         );
-        if (!statsResponse.ok) throw new Error("Không thể tải thống kê");
+        if (!statsResponse.ok) throw new Error(i18n.cannotLoadStats);
         const stats = await statsResponse.json();
 
         totalStudentsEl.textContent = stats.total_students;
@@ -424,14 +508,13 @@ block extra_css %}
         attendanceRateEl.textContent = `${stats.attendance_rate}%`;
         attendanceRateBar.style.width = `${stats.attendance_rate}%`;
         attendanceRateBar.setAttribute("aria-valuenow", stats.attendance_rate);
-        avgDurationEl.textContent = `${stats.avg_duration_minutes} phút`;
+        avgDurationEl.textContent = `${stats.avg_duration_minutes} ${i18n.minutes}`;
 
         const attendanceResponse = await fetch(
           `/api/attendance/today?${withTimestamp(params)}`,
           { headers: { "Cache-Control": "no-cache" } }
         );
-        if (!attendanceResponse.ok)
-          throw new Error("Không thể tải danh sách điểm danh");
+        if (!attendanceResponse.ok) throw new Error(i18n.cannotLoadAttendance);
         const attendance = await attendanceResponse.json();
         if (!attendance.success) {
           throw new Error(
@@ -450,9 +533,9 @@ block extra_css %}
             );
             const durationLabel =
               typeof student.duration_minutes === "number"
-                ? `${student.duration_minutes} phút`
+                ? `${student.duration_minutes} ${i18n.minutes}`
                 : "--";
-            const safeName = escapeHtml(student.full_name || "Không rõ");
+            const safeName = escapeHtml(student.full_name || i18n.unknown);
             const row = `
               <tr>
                 <td>${escapeHtml(student.student_id || "--")}</td>
@@ -460,7 +543,9 @@ block extra_css %}
                 <td>${checkInTime}</td>
                 <td>${durationLabel}</td>
                 <td>
-                  <button class="btn btn-sm btn-outline-primary js-view-details" title="Xem chi tiết"
+                  <button class="btn btn-sm btn-outline-primary js-view-details" title="${
+                    i18n.viewDetails
+                  }"
                           data-student-id="${escapeHtml(
                             student.student_id || ""
                           )}"
@@ -472,10 +557,7 @@ block extra_css %}
             checkedInTableBody.insertAdjacentHTML("beforeend", row);
           });
         } else {
-          checkedInTableBody.innerHTML = emptyRow(
-            5,
-            "Chưa có sinh viên nào có mặt."
-          );
+          checkedInTableBody.innerHTML = emptyRow(5, i18n.noStudentsPresent);
         }
 
         checkedOutTableBody.innerHTML = "";
@@ -490,9 +572,9 @@ block extra_css %}
             const checkOutTime = formatTimeLabel(student.checkout_time);
             const durationLabel =
               typeof student.duration_minutes === "number"
-                ? `${student.duration_minutes} phút`
+                ? `${student.duration_minutes} ${i18n.minutes}`
                 : "--";
-            const safeName = escapeHtml(student.full_name || "Không rõ");
+            const safeName = escapeHtml(student.full_name || i18n.unknown);
             const row = `
               <tr>
                 <td>${escapeHtml(student.student_id || "--")}</td>
@@ -501,7 +583,9 @@ block extra_css %}
                 <td>${checkOutTime}</td>
                 <td>${durationLabel}</td>
                 <td>
-                  <button class="btn btn-sm btn-outline-primary js-view-details" title="Xem chi tiết"
+                  <button class="btn btn-sm btn-outline-primary js-view-details" title="${
+                    i18n.viewDetails
+                  }"
                           data-student-id="${escapeHtml(
                             student.student_id || ""
                           )}"
@@ -513,35 +597,29 @@ block extra_css %}
             checkedOutTableBody.insertAdjacentHTML("beforeend", row);
           });
         } else {
-          checkedOutTableBody.innerHTML = emptyRow(
-            6,
-            "Chưa có sinh viên nào ra về."
-          );
+          checkedOutTableBody.innerHTML = emptyRow(6, i18n.noStudentsLeft);
         }
 
         const classInfo = creditClassMap.get(String(currentCreditClassId));
         let noticeMessage = classInfo
-          ? `Đang xem báo cáo của ${
+          ? `${i18n.viewingReport} ${
               classInfo.display_name ||
               classInfo.subject_name ||
               classInfo.credit_code
             }`
-          : "Đang xem báo cáo lớp đã chọn";
+          : i18n.viewingReport;
         if (currentSessionId) {
-          noticeMessage += ` · Phiên #${currentSessionId}`;
+          noticeMessage += ` · ${i18n.session} #${currentSessionId}`;
         } else if (attendance.session && attendance.session.status) {
-          noticeMessage += ` · Phiên hiện tại: ${attendance.session.status}`;
+          noticeMessage += ` · ${i18n.currentSession}: ${attendance.session.status}`;
         }
         setFilterNotice(noticeMessage, "success");
         toggleDataSections(true);
       } catch (error) {
         console.error("Error loading reports:", error);
-        setFilterNotice(
-          error.message || "Không thể tải báo cáo. Vui lòng thử lại.",
-          "danger"
-        );
+        setFilterNotice(error.message || i18n.loadError, "danger");
         toggleDataSections(false);
-        resetTables("Không có dữ liệu do lỗi tải.");
+        resetTables(i18n.loadError);
       } finally {
         isLoadingData = false;
       }
@@ -557,17 +635,14 @@ block extra_css %}
         sessionContainer.classList.add("d-none");
         sessionSelect.disabled = true;
         refreshButton.disabled = true;
-        setFilterNotice("Chọn lớp tín chỉ để xem báo cáo chi tiết.", "info");
+        setFilterNotice(i18n.selectClassNotice, "info");
         toggleDataSections(false);
-        resetTables("Chưa chọn lớp tín chỉ.");
+        resetTables(i18n.notSelected);
         return;
       }
 
       refreshButton.disabled = false;
-      setFilterNotice(
-        "Đang tải danh sách phiên cho lớp đã chọn...",
-        "secondary"
-      );
+      setFilterNotice(i18n.loadingSessions, "secondary");
       await loadSessionsForClass(currentCreditClassId);
       await loadReports();
       startAutoRefresh();
@@ -582,15 +657,124 @@ block extra_css %}
     creditClassSelect.addEventListener("change", handleClassChange);
     sessionSelect.addEventListener("change", handleSessionChange);
 
+    // Handle view details buttons
+    document.addEventListener("click", async (e) => {
+      const btn = e.target.closest(".js-view-details");
+      if (!btn) return;
+
+      const studentId = btn.dataset.studentId;
+      const studentName = btn.dataset.studentName;
+
+      if (!studentId) return;
+
+      // Show modal
+      const modal = new bootstrap.Modal(
+        document.getElementById("attendanceDetailModal")
+      );
+      const modalTitle = document.getElementById("attendanceDetailModalLabel");
+      const detailContent = document.getElementById("detailContent");
+
+      modalTitle.innerHTML = `<i class="fas fa-user-clock me-2"></i>${
+        i18n.attendanceDetails || "Chi tiết điểm danh"
+      }: ${escapeHtml(studentName)}`;
+      detailContent.innerHTML = `<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>`;
+      modal.show();
+
+      try {
+        // Load attendance history
+        const response = await fetch(
+          `/api/attendance/history/${studentId}?limit=10`
+        );
+        if (!response.ok) throw new Error("Cannot load attendance history");
+
+        const data = await response.json();
+        const records = data.data || [];
+
+        if (records.length === 0) {
+          detailContent.innerHTML = `<div class="alert alert-info">${
+            i18n.noAttendanceHistory || "Chưa có lịch sử điểm danh"
+          }</div>`;
+          return;
+        }
+
+        // Build detail view
+        let html = `
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <strong>${i18n.studentId || "Mã SV"}:</strong> ${escapeHtml(
+          studentId
+        )}
+            </div>
+            <div class="col-md-6">
+              <strong>${i18n.totalRecords || "Tổng số buổi"}:</strong> ${
+          records.length
+        }
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-striped">
+              <thead>
+                <tr>
+                  <th>${i18n.date || "Ngày"}</th>
+                  <th>${i18n.timeIn || "Giờ vào"}</th>
+                  <th>${i18n.timeOut || "Giờ ra"}</th>
+                  <th>${i18n.duration || "Thời gian"}</th>
+                  <th>${i18n.session || "Phiên"}</th>
+                </tr>
+              </thead>
+              <tbody>
+        `;
+
+        records.forEach((record) => {
+          const date = record.check_in_time
+            ? new Date(record.check_in_time).toLocaleDateString("vi-VN")
+            : "--";
+          const timeIn = record.check_in_time
+            ? new Date(record.check_in_time).toLocaleTimeString("vi-VN")
+            : "--";
+          const timeOut = record.checkout_time
+            ? new Date(record.checkout_time).toLocaleTimeString("vi-VN")
+            : "--";
+          const duration = record.duration_minutes
+            ? `${record.duration_minutes} ${i18n.minutes}`
+            : "--";
+          const session = record.session_id || "--";
+
+          html += `
+            <tr>
+              <td>${date}</td>
+              <td>${timeIn}</td>
+              <td>${timeOut}</td>
+              <td>${duration}</td>
+              <td>${session}</td>
+            </tr>
+          `;
+        });
+
+        html += `
+              </tbody>
+            </table>
+          </div>
+        `;
+
+        detailContent.innerHTML = html;
+      } catch (error) {
+        console.error("Error loading details:", error);
+        detailContent.innerHTML = `<div class="alert alert-danger">${
+          i18n.loadError || "Không thể tải chi tiết"
+        }</div>`;
+      }
+    });
+
     (async () => {
       try {
         await populateCreditClasses();
         loadingContainer.classList.add("d-none");
         mainContent.classList.remove("d-none");
-        setFilterNotice("Chọn lớp tín chỉ để xem báo cáo chi tiết.", "info");
+        setFilterNotice(i18n.selectClassNotice, "info");
       } catch (error) {
         console.error(error);
-        loadingContainer.innerHTML = `<div class="alert alert-danger">Không thể tải dữ liệu khởi tạo báo cáo.</div>`;
+        loadingContainer.innerHTML = `<div class="alert alert-danger">${i18n.cannotLoadInit}</div>`;
       }
     })();
   });

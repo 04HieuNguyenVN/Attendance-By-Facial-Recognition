@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="{{ current_language or 'vi' }}">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>{% block title %}Hệ thống điểm danh thông minh{% endblock %}</title>
+    <title>{% block title %}{{ _('app_name') }}{% endblock %}</title>
 
     <!-- Bootstrap CSS -->
     <link
@@ -74,7 +74,7 @@
       >
         <div class="toast-header">
           <i class="fas fa-info-circle me-2"></i>
-          <strong class="me-auto">Thông báo</strong>
+          <strong class="me-auto">{{ _('common.notification') }}</strong>
           <button
             type="button"
             class="btn-close btn-close-white"

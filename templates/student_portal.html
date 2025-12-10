@@ -1,4 +1,4 @@
-{% extends 'base.html' %} {% block title %}Cổng thông tin sinh viên{% endblock
+{% extends 'base.html' %} {% block title %}{{ _('portal.title') }} - {{ _('app_name') }}{% endblock
 %} {% block content %}
 <div
   id="student-portal"
@@ -11,8 +11,7 @@
   {% if not student %}
   <div class="alert alert-warning">
     <i class="fas fa-info-circle me-1"></i>
-    Không tìm thấy thông tin sinh viên cho tài khoản hiện tại. Vui lòng liên hệ
-    quản trị viên để được cấp quyền.
+    {{ _('portal.no_student_info') }}
   </div>
   {% endif %}
 
@@ -26,7 +25,7 @@
         type="button"
         role="tab"
       >
-        <i class="fas fa-layer-group me-1"></i>Tổng quan
+        <i class="fas fa-layer-group me-1"></i>{{ _('portal.overview') }}
       </button>
     </li>
     <li class="nav-item" role="presentation">
@@ -38,7 +37,7 @@
         type="button"
         role="tab"
       >
-        <i class="fas fa-user-edit me-1"></i>Chỉnh sửa thông tin
+        <i class="fas fa-user-edit me-1"></i>{{ _('portal.edit_profile') }}
       </button>
     </li>
   </ul>
@@ -55,13 +54,13 @@
           <div class="card shadow-sm border-0 h-100">
             <div class="card-body">
               <p class="text-uppercase text-muted fw-semibold small mb-1">
-                Hồ sơ sinh viên
+                {{ _('portal.student_profile') }}
               </p>
               <h3 class="h5 mb-1" id="student-profile-name">
-                {{ student.full_name if student else 'Chưa xác định' }}
+                {{ student.full_name if student else _('portal.not_defined') }}
               </h3>
               <p class="text-muted mb-3" id="student-profile-code">
-                MSSV: {{ student.student_id if student else '—' }}
+                {{ _('portal.student_code') }}: {{ student.student_id if student else '—' }}
               </p>
               <ul class="list-unstyled small text-muted">
                 <li>
@@ -79,14 +78,14 @@
                 <li>
                   <i class="fas fa-chalkboard me-2"></i>
                   <span id="student-profile-class">
-                    {% if student and student.class_id %}Lớp hành chính #{{
-                    student.class_id }}{% else %}Chưa cập nhật{% endif %}
+                    {% if student and student.class_id %}{{ _('portal.admin_class') }} #{{
+                    student.class_id }}{% else %}{{ _('portal.not_updated') }}{% endif %}
                   </span>
                 </li>
               </ul>
               <div class="mt-3 p-3 bg-light rounded-3 border-0">
                 <p class="text-muted text-uppercase small mb-2 fw-semibold">
-                  Thống kê
+                  {{ _('reports.statistics') }}
                 </p>
                 <div class="row g-3">
                   <div class="col-6">
@@ -94,7 +93,7 @@
                       <h4 class="mb-1 text-primary" id="student-summary-total">
                         0
                       </h4>
-                      <small class="text-muted d-block">Lớp tín chỉ</small>
+                      <small class="text-muted d-block">{{ _('portal.credit_classes') }}</small>
                     </div>
                   </div>
                   <div class="col-6">
@@ -102,13 +101,13 @@
                       <h4 class="mb-1 text-success" id="student-summary-active">
                         0
                       </h4>
-                      <small class="text-muted d-block">Phiên mở</small>
+                      <small class="text-muted d-block">{{ _('portal.open_sessions') }}</small>
                     </div>
                   </div>
                 </div>
               </div>
               <p class="small text-muted mt-3 mb-0">
-                Dữ liệu được đồng bộ từ hệ thống điểm danh trung tâm.
+                {{ _('portal.sync_note') }}
               </p>
             </div>
           </div>
@@ -119,31 +118,30 @@
               class="card-header bg-transparent border-bottom-0 d-flex justify-content-between align-items-center"
             >
               <div>
-                <h5 class="card-title mb-0">Lớp tín chỉ đã đăng ký</h5>
+                <h5 class="card-title mb-0">{{ _('portal.registered_classes') }}</h5>
                 <small class="text-muted"
-                  >Danh sách lớp tín chỉ đang hoạt động</small
+                  >{{ _('portal.active_classes_desc') }}</small
                 >
               </div>
               <button
                 class="btn btn-sm btn-outline-primary"
                 id="student-refresh"
               >
-                <i class="fas fa-rotate-right me-1"></i>Tải lại
+                <i class="fas fa-rotate-right me-1"></i>{{ _('portal.reload') }}
               </button>
             </div>
             <div class="card-body">
               <div id="student-class-loading" class="text-center py-5">
                 <div class="spinner-border text-primary mb-3" role="status">
-                  <span class="visually-hidden">Đang tải...</span>
+                  <span class="visually-hidden">{{ _('common.loading') }}</span>
                 </div>
-                <p class="text-muted mb-0">Đang tải danh sách lớp tín chỉ...</p>
+                <p class="text-muted mb-0">{{ _('portal.loading_classes') }}</p>
               </div>
               <div id="student-class-empty" class="text-center py-5 d-none">
                 <i class="fas fa-inbox fa-3x text-muted mb-3 opacity-50"></i>
-                <h6 class="text-muted mb-2">Chưa có lớp tín chỉ</h6>
+                <h6 class="text-muted mb-2">{{ _('portal.no_credit_classes') }}</h6>
                 <p class="text-muted small mb-0">
-                  Bạn chưa được ghi danh vào lớp tín chỉ nào.<br />
-                  Vui lòng liên hệ giảng viên hoặc phòng đào tạo.
+                  {{ _('portal.no_classes_hint') }}
                 </p>
               </div>
               <div id="student-class-list" class="row g-3"></div>
@@ -157,20 +155,20 @@
               class="card-header bg-transparent border-bottom-0 d-flex justify-content-between align-items-center"
             >
               <div>
-                <h5 class="card-title mb-0">Điểm danh trực tuyến</h5>
+                <h5 class="card-title mb-0">{{ _('portal.online_attendance') }}</h5>
                 <small class="text-muted"
-                  >Chọn hành động và lớp tín chỉ trước khi bật camera</small
+                  >{{ _('portal.online_attendance_hint') }}</small
                 >
               </div>
             </div>
             <div class="card-body">
               <div class="row g-3 align-items-end">
                 <div class="col-md-4">
-                  <label class="form-label">Hành động</label>
+                  <label class="form-label">{{ _('portal.action') }}</label>
                   <div
                     class="btn-group w-100"
                     role="group"
-                    aria-label="Chọn hành động"
+                    aria-label="{{ _('portal.select_action') }}"
                   >
                     <input
                       type="radio"
@@ -184,7 +182,7 @@
                     <label
                       class="btn btn-outline-primary"
                       for="student-action-checkin"
-                      >Điểm danh</label
+                      >{{ _('attendance.check_in') }}</label
                     >
                     <input
                       type="radio"
@@ -197,19 +195,19 @@
                     <label
                       class="btn btn-outline-primary"
                       for="student-action-checkout"
-                      >Checkout</label
+                      >{{ _('attendance.check_out') }}</label
                     >
                   </div>
                 </div>
                 <div class="col-md-5">
                   <label for="student-credit-class-select" class="form-label"
-                    >Lớp tín chỉ</label
+                    >{{ _('portal.credit_class') }}</label
                   >
                   <select class="form-select" id="student-credit-class-select">
-                    <option value="">Chọn lớp tín chỉ</option>
+                    <option value="">{{ _('portal.select_credit_class') }}</option>
                   </select>
                   <div class="form-text text-muted" id="student-session-hint">
-                    Vui lòng chọn lớp có phiên đang mở.
+                    {{ _('portal.select_open_session') }}
                   </div>
                 </div>
                 <div class="col-md-3 text-md-end">
@@ -218,13 +216,13 @@
                     id="student-start-camera"
                     disabled
                   >
-                    <i class="fas fa-play me-1"></i>Bắt đầu
+                    <i class="fas fa-play me-1"></i>{{ _('portal.start') }}
                   </button>
                   <button
                     class="btn btn-outline-secondary w-100 d-none"
                     id="student-stop-camera"
                   >
-                    <i class="fas fa-stop me-1"></i>Kết thúc
+                    <i class="fas fa-stop me-1"></i>{{ _('portal.stop') }}
                   </button>
                 </div>
               </div>
@@ -243,9 +241,9 @@
               class="card-header bg-transparent border-bottom-0 d-flex justify-content-between align-items-center"
             >
               <div>
-                <h5 class="card-title mb-0">Lịch sử điểm danh gần đây</h5>
+                <h5 class="card-title mb-0">{{ _('portal.attendance_history') }}</h5>
                 <small class="text-muted"
-                  >Theo dõi tối đa 10 phiên gần nhất</small
+                  >{{ _('portal.history_limit') }}</small
                 >
               </div>
               <button
@@ -253,18 +251,18 @@
                 class="btn btn-sm btn-outline-secondary"
                 id="student-history-refresh"
               >
-                <i class="fas fa-history me-1"></i>Cập nhật
+                <i class="fas fa-history me-1"></i>{{ _('common.update') }}
               </button>
             </div>
             <div class="card-body">
               <div id="student-history-loading" class="text-center py-4">
                 <div class="spinner-border text-primary" role="status"></div>
                 <p class="text-muted mt-3 mb-0">
-                  Đang tải lịch sử điểm danh...
+                  {{ _('portal.loading_history') }}
                 </p>
               </div>
               <div id="student-history-empty" class="text-center py-4 d-none">
-                <p class="text-muted mb-0">Chưa có lịch sử điểm danh.</p>
+                <p class="text-muted mb-0">{{ _('portal.no_history') }}</p>
               </div>
               <div id="student-history-list" class="list-group"></div>
             </div>
@@ -283,10 +281,9 @@
         <div class="col-12 col-lg-8">
           <div class="card shadow-sm border-0">
             <div class="card-header bg-transparent border-bottom-0">
-              <h5 class="card-title mb-0">Chỉnh sửa thông tin cá nhân</h5>
+              <h5 class="card-title mb-0">{{ _('portal.edit_personal_info') }}</h5>
               <small class="text-muted"
-                >Cập nhật email, số điện thoại hoặc tên hiển thị để đồng bộ với
-                lớp học.</small
+                >{{ _('portal.edit_info_desc') }}</small
               >
             </div>
             <div class="card-body">
@@ -305,7 +302,7 @@
                   <label
                     for="student-profile-field-full-name"
                     class="form-label"
-                    >Họ và tên</label
+                    >{{ _('student.full_name') }}</label
                   >
                   <input
                     type="text"
@@ -318,7 +315,7 @@
                 </div>
                 <div class="mb-3">
                   <label for="student-profile-field-email" class="form-label"
-                    >Email</label
+                    >{{ _('student.email') }}</label
                   >
                   <input
                     type="email"
@@ -329,13 +326,12 @@
                     placeholder="ten@gmail.com"
                   />
                   <div class="form-text">
-                    Email sẽ dùng để nhận thông báo khi giảng viên mở phiên điểm
-                    danh.
+                    {{ _('portal.email_hint') }}
                   </div>
                 </div>
                 <div class="mb-4">
                   <label for="student-profile-field-phone" class="form-label"
-                    >Số điện thoại</label
+                    >{{ _('student.phone') }}</label
                   >
                   <input
                     type="text"
@@ -352,14 +348,13 @@
                     class="btn btn-primary"
                     id="student-profile-save"
                   >
-                    <i class="fas fa-save me-1"></i>Lưu thay đổi
+                    <i class="fas fa-save me-1"></i>{{ _('portal.save_changes') }}
                   </button>
                 </div>
               </form>
               {% else %}
               <p class="text-muted mb-0">
-                Chưa thể chỉnh sửa vì tài khoản này chưa được liên kết với hồ sơ
-                sinh viên.
+                {{ _('portal.cannot_edit') }}
               </p>
               {% endif %}
             </div>

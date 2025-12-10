@@ -1,5 +1,5 @@
-{% extends 'base.html' %} {% set active_page = 'home' %} {% block title %}Hệ
-thống điểm danh thông minh{% endblock %} {% block content %}
+{% extends 'base.html' %} {% set active_page = 'home' %} {% block title %}{{
+_('app_name') }}{% endblock %} {% block content %}
 <div class="container-fluid mt-4">
   <div class="row">
     <!-- Main Content -->
@@ -17,7 +17,121 @@ thống điểm danh thông minh{% endblock %} {% block content %}
   </div>
 </div>
 
-{% include 'components/quick_register_modal.html' %} {% endblock %} {% block
-extra_js %}
+{% include 'components/quick_register_modal.html' %}
+
+<!-- Modal Chi Tiết Điểm Danh -->
+<div
+  class="modal fade"
+  id="attendanceDetailModal"
+  tabindex="-1"
+  aria-labelledby="attendanceDetailModalLabel"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title" id="attendanceDetailModalLabel">
+          <i class="fas fa-user-clock me-2"></i>Chi tiết điểm danh
+        </h5>
+        <button
+          type="button"
+          class="btn-close btn-close-white"
+          data-bs-dismiss="modal"
+          aria-label="Close"
+        ></button>
+      </div>
+      <div class="modal-body">
+        <!-- Alert -->
+        <div
+          id="attendance-detail-alert"
+          class="alert alert-info d-none"
+          role="alert"
+        ></div>
+
+        <!-- Student Info -->
+        <div class="row mb-4">
+          <div class="col-md-4">
+            <div class="card bg-light">
+              <div class="card-body">
+                <h6 class="card-subtitle mb-2 text-muted">Sinh viên</h6>
+                <h5 class="card-title mb-1" id="detail-student-name">---</h5>
+                <p class="card-text text-muted mb-0" id="detail-student-id">
+                  MSSV: ---
+                </p>
+                <p class="card-text" id="detail-student-class">Chưa rõ lớp</p>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-8">
+            <div class="row g-3">
+              <div class="col-md-3">
+                <div class="card text-center">
+                  <div class="card-body">
+                    <h6 class="text-muted mb-2">Tổng số buổi</h6>
+                    <h3 class="mb-0" id="detail-total-sessions">0</h3>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-4">
+                <div class="card">
+                  <div class="card-body">
+                    <h6 class="text-muted mb-2">
+                      <i class="fas fa-sign-in-alt me-1"></i>Lần vào gần nhất
+                    </h6>
+                    <p class="mb-0" id="detail-last-checkin">--</p>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-4">
+                <div class="card">
+                  <div class="card-body">
+                    <h6 class="text-muted mb-2">
+                      <i class="fas fa-sign-out-alt me-1"></i>Lần ra gần nhất
+                    </h6>
+                    <p class="mb-0" id="detail-last-checkout">--</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- History Table -->
+        <h6 class="mb-3">
+          <i class="fas fa-history me-2"></i>Lịch sử điểm danh
+        </h6>
+        <div class="table-responsive">
+          <table class="table table-striped table-hover">
+            <thead class="table-light">
+              <tr>
+                <th>Ngày</th>
+                <th>Giờ vào</th>
+                <th>Giờ ra</th>
+                <th>Thời gian</th>
+                <th>Ghi chú</th>
+              </tr>
+            </thead>
+            <tbody id="attendance-history-body">
+              <tr>
+                <td colspan="5" class="text-center">
+                  <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Đang tải...</span>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          <i class="fas fa-times me-1"></i>Đóng
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %} {% block extra_js %}
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 {% endblock %}

@@ -1,13 +1,13 @@
 <!-- Navigation Component -->
 <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
   <div class="container-fluid">
-    {% set brand_href = url_for('index') %} {% if current_user %} {% set role =
-    (current_role or current_user.role or '')|lower %} {% if role == 'student'
-    %} {% set brand_href = url_for('student_portal_page') %} {% endif %} {%
-    endif %}
+    {% set brand_href = url_for('main.index') %} {% if current_user %} {% set
+    role = (current_role or current_user.role or '')|lower %} {% if role ==
+    'student' %} {% set brand_href = url_for('main.student_portal') %} {% endif
+    %} {% endif %}
     <a class="navbar-brand" href="{{ brand_href }}">
       <img src="/static/img/logoEAUT.png" alt="Logo EAUT" class="navbar-logo" />
-      Hệ thống điểm danh thông minh
+      {{ _('app_name') }}
     </a>
     <button
       class="navbar-toggler"
@@ -27,10 +27,10 @@
         <li class="nav-item">
           <a
             class="nav-link {% if active_page == 'home' %}active{% endif %}"
-            href="{{ url_for('index') }}"
+            href="{{ url_for('main.index') }}"
           >
             <i class="fas fa-home me-1"></i
-            ><span class="d-lg-inline">Trang chủ</span>
+            ><span class="d-lg-inline">{{ _('nav.home') }}</span>
           </a>
         </li>
         {%- endif -%} {%- if is_admin %}
@@ -40,7 +40,7 @@
             href="/students"
           >
             <i class="fas fa-users me-1"></i
-            ><span class="d-lg-inline">Quản lý sinh viên</span>
+            ><span class="d-lg-inline">{{ _('nav.students') }}</span>
           </a>
         </li>
         {%- endif %} {%- if is_teacher %}
@@ -49,7 +49,7 @@
             class="nav-link {% if active_page == 'teacher-classes' %}active{% endif %}"
             href="/teacher/credit-classes"
           >
-            <i class="fas fa-user-tie me-1"></i>Giảng viên
+            <i class="fas fa-user-tie me-1"></i>{{ _('nav.teacher') }}
           </a>
         </li>
         {%- endif %} {%- if is_admin or is_teacher %}
@@ -58,7 +58,7 @@
             class="nav-link {% if active_page == 'reports' %}active{% endif %}"
             href="/reports"
           >
-            <i class="fas fa-chart-bar me-1"></i>Báo cáo
+            <i class="fas fa-chart-bar me-1"></i>{{ _('nav.reports') }}
           </a>
         </li>
         {%- endif %} {%- if is_admin %}
@@ -67,7 +67,7 @@
             class="nav-link {% if active_page == 'classes' %}active{% endif %}"
             href="/classes"
           >
-            <i class="fas fa-chalkboard-teacher me-1"></i>Lớp học
+            <i class="fas fa-chalkboard-teacher me-1"></i>{{ _('nav.classes') }}
           </a>
         </li>
         {%- endif %} {%- if is_student %}
@@ -76,7 +76,7 @@
             class="nav-link {% if active_page == 'student-portal' %}active{% endif %}"
             href="/student/portal"
           >
-            <i class="fas fa-user-graduate me-1"></i>Cổng sinh viên
+            <i class="fas fa-user-graduate me-1"></i>{{ _('nav.student_portal') }}
           </a>
         </li>
         {%- endif %} {%- if is_admin %}
@@ -85,12 +85,40 @@
             class="nav-link {% if active_page == 'settings' %}active{% endif %}"
             href="/settings"
           >
-            <i class="fas fa-cog me-1"></i>Cài đặt
+            <i class="fas fa-cog me-1"></i>{{ _('nav.settings') }}
           </a>
         </li>
         {%- endif %}
       </ul>
       <ul class="navbar-nav">
+        <!-- Language Switcher -->
+        <li class="nav-item dropdown me-2">
+          <a
+            class="nav-link dropdown-toggle"
+            href="#"
+            role="button"
+            data-bs-toggle="dropdown"
+            aria-label="{{ _('language.select') }}"
+          >
+            <i class="fas fa-globe"></i>
+            <span class="d-none d-md-inline ms-1">
+              {% if current_language == 'en' %}EN{% else %}VI{% endif %}
+            </span>
+          </a>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li>
+              <a class="dropdown-item {% if current_language == 'vi' %}active{% endif %}" href="/set-language/vi">
+                <span class="fi fi-vn me-2"></span>{{ _('language.vietnamese') }}
+              </a>
+            </li>
+            <li>
+              <a class="dropdown-item {% if current_language == 'en' %}active{% endif %}" href="/set-language/en">
+                <span class="fi fi-us me-2"></span>{{ _('language.english') }}
+              </a>
+            </li>
+          </ul>
+        </li>
+
         <!-- Theme Toggle -->
         <li class="nav-item me-3 d-flex align-items-center">
           <button
@@ -122,16 +150,40 @@
             <li><hr class="dropdown-divider" /></li>
             <li>
               <a class="dropdown-item" href="/logout"
-                ><i class="fas fa-sign-out-alt me-1"></i>Đăng xuất</a
+                ><i class="fas fa-sign-out-alt me-1"></i>{{ _('nav.logout') }}</a
               >
             </li>
           </ul>
         </li>
       </ul>
       {%- else %}
-      <div class="ms-auto">
-        <a class="btn btn-outline-light" href="{{ url_for('login') }}">
-          <i class="fas fa-sign-in-alt me-1"></i>Đăng nhập
+      <div class="ms-auto d-flex align-items-center">
+        <!-- Language Switcher (when not logged in) -->
+        <div class="dropdown me-3">
+          <a
+            class="btn btn-outline-light dropdown-toggle"
+            href="#"
+            role="button"
+            data-bs-toggle="dropdown"
+          >
+            <i class="fas fa-globe me-1"></i>
+            {% if current_language == 'en' %}EN{% else %}VI{% endif %}
+          </a>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li>
+              <a class="dropdown-item {% if current_language == 'vi' %}active{% endif %}" href="/set-language/vi">
+                {{ _('language.vietnamese') }}
+              </a>
+            </li>
+            <li>
+              <a class="dropdown-item {% if current_language == 'en' %}active{% endif %}" href="/set-language/en">
+                {{ _('language.english') }}
+              </a>
+            </li>
+          </ul>
+        </div>
+        <a class="btn btn-outline-light" href="{{ url_for('auth.login') }}">
+          <i class="fas fa-sign-in-alt me-1"></i>{{ _('nav.login') }}
         </a>
       </div>
       {%- endif %}

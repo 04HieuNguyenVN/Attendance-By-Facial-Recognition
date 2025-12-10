@@ -1,3 +1,15 @@
+# =============================================================================
+# LEGACY FILE - Chỉ còn camera routes (được sử dụng qua dynamic import)
+# =============================================================================
+# NOTE: File này được giữ lại CHỈ để cung cấp camera routes cho app/__init__.py
+# Các phần khác đã được migrate sang:
+#   - app/models/ (StateManager, CameraService, AttendanceTracker, etc.)
+#   - app/routes/ (blueprints)
+#   - app/__init__.py (service initialization)
+#
+# TODO: Migrate camera routes sang blueprint và xóa file này
+# =============================================================================
+
 # Thiết lập mã hóa UTF-8 cho đầu ra console
 import sys
 import io
@@ -34,8 +46,6 @@ import threading
 import hashlib
 from functools import wraps
 from typing import Any, Dict, Optional
-# Lưu ý: sử dụng threading.Thread / threading.Lock qua module threading để tránh
-# trùng lặp tên không sử dụng trong namespace của module.
 
 # Các import bên thứ ba
 import cv2
@@ -59,183 +69,146 @@ from core.inference.engine import (
 )
 from core.vision.camera_manager import CameraError
 from core.vision.state import VisionPipelineState, VisionStateConfig
+from i18n import init_i18n
 
-# Cố gắng tải dotenv, nhưng không báo lỗi nếu chưa cài đặt
+# Cố gắng tải dotenv
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
     print("Warning: python-dotenv not installed. Using default configuration.")
-    print("Install it with: pip install python-dotenv")
 
+# =============================================================================
+# MINIMAL FLASK APP - Chỉ để camera routes hoạt động
+# =============================================================================
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # Kích thước file tối đa 16MB
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
 # Cấu hình upload ảnh
 ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png'}
 SUPPORTED_IMAGE_FORMATS = {'JPEG', 'PNG', 'WEBP'}
-MIN_FILE_SIZE = 1024  # 1 KB - tối thiểu
+MIN_FILE_SIZE = 1024  # 1 KB
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 MIN_FACE_SAMPLES_PER_STUDENT = max(3, int(os.getenv('MIN_FACE_SAMPLES', '3')))
-MAX_FACE_SAMPLES_PER_REQUEST = max(
-    MIN_FACE_SAMPLES_PER_STUDENT,
-    int(os.getenv('MAX_FACE_SAMPLES', '12')),
-)
 
 # Thiết lập logging
 setup_logging(app)
+init_i18n(app)
 
-app.logger.info(f"[STARTUP] Working directory: {os.getcwd()}")
-app.logger.info(f"[STARTUP] Database path: {os.path.abspath('attendance_system.db')}")
-
-# Load attendance cache từ DB để đồng bộ trạng thái
-try:
-    attendance_records = db.get_today_attendance()
-    for record in attendance_records:
-        student_id = record['student_id'].strip().upper()
-        check_out_time = record.get('check_out_time')
-        if check_out_time:
-            today_checked_out.add(student_id)
-        else:
-            today_checked_in.add(student_id)
-        # Populate student names cache
-        today_student_names[student_id] = {
-            'name': record.get('student_name') or record.get('full_name') or student_id,
-            'class_name': record.get('class_name'),
-            'class_type': 'credit' if record.get('credit_class_id') else 'administrative',
-            'credit_class_id': record.get('credit_class_id')
-        }
-    app.logger.info(f"[STARTUP] Loaded {len(attendance_records)} attendance records into cache")
-except Exception as e:
-    app.logger.warning(f"[STARTUP] Failed to load attendance cache: {e}")
-
-# Dọn dẹp các bản ghi lớp học cũ bị lỗi nếu có
-LEGACY_CLASS_NAMES = [
-    'Công nghệ thông tin 01',
-    'Công nghệ thông tin 01',
-]
-for legacy_name in LEGACY_CLASS_NAMES:
-    removed = db.delete_class_by_name(legacy_name)
-    if removed:
-        app.logger.info("Removed legacy class entry: %s (records: %s)", legacy_name, removed)
-
-# Cấu hình chế độ demo (sử dụng os.getenv sau khi load_dotenv)
+# =============================================================================
+# CONFIGURATION - Imported from environment
+# =============================================================================
 DEMO_MODE = os.getenv('DEMO_MODE', '0') == '1'
-USE_FACENET = os.getenv('USE_FACENET', '1') == '1'  # Sử dụng FaceNet thay vì face_recognition
+USE_FACENET = os.getenv('USE_FACENET', '1') == '1'
 
-# Import các dịch vụ nhận diện khuôn mặt nâng cao (dựa trên FaceNet)
-face_service = None
-antispoof_service = None
-training_service = None
-FACE_RECOGNITION_AVAILABLE = False
-
-if USE_FACENET and not DEMO_MODE:
-    try:
-        from services.face_service import FaceRecognitionService
-        from services.antispoof_service import AntiSpoofService
-        from services.training_service import TrainingService
-
-        face_service = FaceRecognitionService(
-            confidence_threshold=float(os.getenv('FACENET_THRESHOLD', '0.85'))
-        )
-
-        antispoof_service = AntiSpoofService(
-            device=os.getenv('ANTISPOOF_DEVICE', 'cpu'),
-            spoof_threshold=float(os.getenv('ANTISPOOF_THRESHOLD', '0.5'))
-        )
-
-        app.logger.info("FaceNet services initialized successfully")
-        FACE_RECOGNITION_AVAILABLE = True
-    except Exception as e:
-        app.logger.warning(f"Could not initialize FaceNet services: {e}")
-        app.logger.info("Falling back to legacy face_recognition library")
-        USE_FACENET = False
-
-# Cố gắng import DeepFace và DeepFace DB helper
-DEEPFACE_AVAILABLE = False
-try:
-    from deepface import DeepFace
-    from services.deepface_db import build_db_from_data_dir, recognize_face as deepface_recognize
-    DEEPFACE_AVAILABLE = True
-    app.logger.info("DeepFace library available - using Facenet512 for face recognition")
-except ImportError:
-    app.logger.warning("DeepFace not available, will try face_recognition as fallback")
-
-# Cố gắng import YOLOv8 để phát hiện khuôn mặt (tùy chọn nhưng khuyến nghị)
-YOLO_AVAILABLE = False
-yolo_face_model = None
-try:
-    from ultralytics import YOLO
-    # Try to load YOLOv8 face detection model từ nhiều vị trí có thể
-    possible_paths = [
-        os.path.join(os.path.dirname(__file__), 'yolov8m-face.pt'),  # Thư mục gốc
-        os.path.join(os.path.dirname(__file__), 'models', 'yolov8m-face.pt'),  # Thư mục models
-        os.path.join(os.path.dirname(__file__), 'Cong-Nghe-Xu-Ly-Anh', 'yolov8m-face.pt'),  # Thư mục tham khảo (dự phòng)
-    ]
-    
-    yolo_model_path = None
-    for path in possible_paths:
-        if os.path.exists(path):
-            yolo_model_path = path
-            break
-    
-    if yolo_model_path:
-        yolo_face_model = YOLO(yolo_model_path)
-        YOLO_AVAILABLE = True
-        app.logger.info(f"YOLOv8 face detection model loaded successfully from {yolo_model_path}")
-    else:
-        app.logger.warning("YOLOv8 model not found. Tried paths: " + ", ".join(possible_paths))
-        app.logger.info("Hệ thống sẽ sử dụng face_recognition hoặc DeepFace face detection thay thế")
-except ImportError:
-    app.logger.warning("YOLOv8 (ultralytics) not available - install with: pip install ultralytics")
-except Exception as e:
-    app.logger.warning(f"Could not load YOLOv8 model: {e}")
-
-# Dự phòng: Import thư viện face_recognition cũ
-if not USE_FACENET and not DEEPFACE_AVAILABLE:
-    try:
-        import face_recognition
-        FACE_RECOGNITION_AVAILABLE = True
-        app.logger.info("Using legacy face_recognition library")
-    except ImportError as e:
-        FACE_RECOGNITION_AVAILABLE = False
-        if not DEMO_MODE:
-            # Nếu không có face_recognition và không phải demo mode, tự động chuyển sang demo mode
-            print("Face recognition not available, switching to demo mode...")
-            DEMO_MODE = True
-            print("Demo mode: face_recognition not available, using simulation mode")
-        else:
-            print("Demo mode: face_recognition not available, using simulation mode")
-else:
-    # Nếu chúng ta có DeepFace hoặc FaceNet, chúng ta có thể thực hiện nhận diện khuôn mặt
-    if not FACE_RECOGNITION_AVAILABLE:
-        FACE_RECOGNITION_AVAILABLE = DEEPFACE_AVAILABLE or USE_FACENET
-
-# Chỉ số thiết bị camera (sử dụng os.getenv sau khi load_dotenv)
 CAMERA_INDEX = int(os.getenv('CAMERA_INDEX', '0'))
 CAMERA_WIDTH = int(os.getenv('CAMERA_WIDTH', '640'))
 CAMERA_HEIGHT = int(os.getenv('CAMERA_HEIGHT', '480'))
 CAMERA_WARMUP_FRAMES = int(os.getenv('CAMERA_WARMUP_FRAMES', '3'))
 CAMERA_BUFFER_SIZE = int(os.getenv('CAMERA_BUFFER_SIZE', '2'))
 
-# Ngưỡng confidence cho face recognition
 FACE_RECOGNITION_THRESHOLD = float(os.getenv('FACE_RECOGNITION_THRESHOLD', '0.6'))
-FACE_DISTANCE_THRESHOLD = float(os.getenv('FACE_DISTANCE_THRESHOLD', '0.45'))  # Khoảng cách tối đa (càng nhỏ càng giống)
-# Ngưỡng cho DeepFace cosine similarity (similarity >= threshold được chấp nhận)
-DEEPFACE_SIMILARITY_THRESHOLD = float(os.getenv('DEEPFACE_SIMILARITY_THRESHOLD', '0.6'))  # Cosine similarity tối thiểu
-# Xác nhận dựa trên thời gian + tư thế (yêu cầu nhìn thẳng trong N giây)
-LOOK_STRAIGHT_SECONDS = float(os.getenv('LOOK_STRAIGHT_SECONDS', '10'))  # seconds
+DEEPFACE_SIMILARITY_THRESHOLD = float(os.getenv('DEEPFACE_SIMILARITY_THRESHOLD', '0.6'))
+LOOK_STRAIGHT_SECONDS = float(os.getenv('LOOK_STRAIGHT_SECONDS', '10'))
 FRONTAL_YAW_RATIO_THRESHOLD = float(os.getenv('FRONTAL_YAW_RATIO_THRESHOLD', '0.15'))
 FRONTAL_ROLL_DEG_THRESHOLD = float(os.getenv('FRONTAL_ROLL_DEG_THRESHOLD', '15'))
-# Tối ưu hiệu năng phát hiện
-YOLO_FRAME_SKIP = max(1, int(os.getenv('YOLO_FRAME_SKIP', '2')))  # Chỉ chạy YOLO mỗi N khung hình
-YOLO_INFERENCE_WIDTH = int(os.getenv('YOLO_INFERENCE_WIDTH', '640'))  # Resize YOLO, 0 = giữ nguyên
+YOLO_FRAME_SKIP = max(1, int(os.getenv('YOLO_FRAME_SKIP', '2')))
+YOLO_INFERENCE_WIDTH = int(os.getenv('YOLO_INFERENCE_WIDTH', '640'))
 SESSION_DURATION_MINUTES = max(1, int(os.getenv('SESSION_DURATION_MINUTES', '15')))
 
-# Đường dẫn thư mục dữ liệu
 DATA_DIR = Path('data')
+RESERVED_DATA_SUBDIRS = {'training_samples', 'models', 'external_assets'}
 
+# =============================================================================
+# INITIALIZE SERVICES - Minimal setup for camera routes
+# =============================================================================
+
+# Import face recognition services
+face_service = None
+antispoof_service = None
+FACE_RECOGNITION_AVAILABLE = False
+DEEPFACE_AVAILABLE = False
+YOLO_AVAILABLE = False
+yolo_face_model = None
+
+# Try to import face_recognition fallback
+try:
+    import face_recognition
+    FACE_RECOGNITION_AVAILABLE = True
+except ImportError:
+    pass
+
+if USE_FACENET and not DEMO_MODE:
+    try:
+        from app.services.face_service import FaceRecognitionService
+        from app.services.antispoof_service import AntiSpoofService
+        face_service = FaceRecognitionService(
+            confidence_threshold=float(os.getenv('FACENET_THRESHOLD', '0.85'))
+        )
+        antispoof_service = AntiSpoofService(
+            device=os.getenv('ANTISPOOF_DEVICE', 'cpu'),
+            spoof_threshold=float(os.getenv('ANTISPOOF_THRESHOLD', '0.5'))
+        )
+        app.logger.info("[LEGACY] FaceNet services initialized")
+    except Exception as e:
+        app.logger.warning(f"[LEGACY] Could not initialize FaceNet: {e}")
+
+try:
+    from deepface import DeepFace
+    from app.services.deepface_db import build_db_from_data_dir, recognize_face as deepface_recognize
+    DEEPFACE_AVAILABLE = True
+except ImportError:
+    pass
+
+try:
+    from ultralytics import YOLO
+    for path in ['yolov8m-face.pt', 'models/yolov8m-face.pt']:
+        if os.path.exists(path):
+            yolo_face_model = YOLO(path)
+            YOLO_AVAILABLE = True
+            break
+except Exception:
+    pass
+
+# =============================================================================
+# GLOBAL STATE - Used by camera routes
+# =============================================================================
+vision_state: Optional[VisionPipelineState] = None
+camera_enabled = True
+inference_engine: Optional[InferenceEngine] = None
+
+known_face_encodings = []
+known_face_names = []
+known_face_ids = []
+known_face_embeddings = []
+
+today_checked_in = set()
+today_checked_out = set()
+today_student_names = {}
+today_recorded_lock = threading.Lock()
+
+current_credit_session = None
+current_session_lock = threading.Lock()
+
+presence_tracking = {}
+presence_tracking_lock = threading.Lock()
+PRESENCE_TIMEOUT = 300
+
+attendance_progress = {}
+attendance_progress_lock = threading.Lock()
+
+last_recognized = {}
+last_recognized_lock = threading.Lock()
+RECOGNITION_COOLDOWN = 30
+
+import queue
+sse_clients = []
+sse_clients_lock = threading.Lock()
+
+# =============================================================================
+# HELPER FUNCTIONS - Minimal set for camera routes
+# =============================================================================
 
 def _normalize_student_dir_name(student_id: Optional[str]) -> str:
     """Sinh tên thư mục an toàn cho sinh viên, ưu tiên dùng mã số."""
@@ -263,199 +236,22 @@ def build_student_image_path(student_id: Optional[str], filename: str) -> Path:
     return student_dir / filename
 
 
-RESERVED_DATA_SUBDIRS = {'training_samples', 'models', 'external_assets'}
-
-
 def iter_student_face_image_files():
     """Duyệt qua tất cả ảnh mẫu sinh viên (bao gồm thư mục con)."""
     if not DATA_DIR.exists():
         return []
-
     allowed_suffixes = {f'.{ext.lower()}' for ext in ALLOWED_EXTENSIONS}
     files = []
-
     for entry in DATA_DIR.iterdir():
         if entry.is_file() and entry.suffix.lower() in allowed_suffixes:
             files.append(entry)
             continue
-
         if not entry.is_dir() or entry.name in RESERVED_DATA_SUBDIRS:
             continue
-
         for sub_path in entry.rglob('*'):
             if sub_path.is_file() and sub_path.suffix.lower() in allowed_suffixes:
                 files.append(sub_path)
-
     return files
-
-
-def _resolve_existing_image_path(path_str: Optional[str]) -> Optional[Path]:
-    if not path_str:
-        return None
-
-    candidates = []
-    raw_path = Path(path_str)
-    candidates.append(raw_path)
-    candidates.append(Path.cwd() / raw_path)
-
-    for candidate in candidates:
-        try:
-            if candidate.exists():
-                return candidate
-        except OSError:
-            continue
-    return None
-
-
-def _move_image_into_student_dir(path_str: Optional[str], student_id: Optional[str]) -> Optional[str]:
-    if not student_id:
-        return None
-    source_path = _resolve_existing_image_path(path_str)
-    if source_path is None:
-        return None
-
-    target_dir = ensure_student_data_dir(student_id)
-    try:
-        relative_inside = source_path.resolve().relative_to(target_dir.resolve())
-        normalized_path = target_dir / relative_inside
-        return str(normalized_path)
-    except Exception:
-        pass
-
-    target_path = target_dir / source_path.name
-    counter = 1
-    while target_path.exists():
-        target_path = target_dir / f"{source_path.stem}_{counter:02d}{source_path.suffix}"
-        counter += 1
-
-    try:
-        shutil.move(str(source_path), str(target_path))
-    except Exception as exc:
-        app.logger.warning("[DataReorg] Không thể di chuyển %s -> %s: %s", source_path, target_path, exc)
-        return None
-
-    return str(target_path)
-
-
-def _infer_student_id_from_filename(filename: str) -> Optional[str]:
-    if not filename:
-        return None
-    match = re.match(r'^([A-Za-z0-9]+)', filename)
-    if match:
-        return match.group(1)
-    return None
-
-
-def organize_student_data_directories():
-    if not DATA_DIR.exists():
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    try:
-        students = db.get_all_students(active_only=False)
-    except Exception as exc:
-        app.logger.warning("[DataReorg] Không thể tải danh sách sinh viên: %s", exc)
-        return
-
-    moved_samples = 0
-    updated_primary = 0
-
-    for student in students:
-        student_data = student if isinstance(student, dict) else dict(student)
-        student_id = student_data.get('student_id')
-        if not student_id:
-            continue
-
-        ensure_student_data_dir(student_id)
-
-        primary_path = student_data.get('face_image_path')
-        new_primary = _move_image_into_student_dir(primary_path, student_id)
-        if new_primary and new_primary != primary_path:
-            try:
-                db.update_student(student_id, face_image_path=new_primary)
-                updated_primary += 1
-            except Exception as exc:
-                app.logger.warning("[DataReorg] Không thể cập nhật avatar của %s: %s", student_id, exc)
-
-        try:
-            samples = db.get_face_samples(student_id)
-        except Exception as exc:
-            app.logger.warning("[DataReorg] Không thể tải ảnh mẫu cho %s: %s", student_id, exc)
-            continue
-
-        for sample in samples:
-            sample_dict = sample if isinstance(sample, dict) else dict(sample)
-            sample_id = sample_dict.get('id')
-            sample_path = sample_dict.get('image_path')
-            new_path = _move_image_into_student_dir(sample_path, student_id)
-            if new_path and new_path != sample_path:
-                if db.update_face_sample_path(sample_id, new_path):
-                    moved_samples += 1
-
-    loose_moves = 0
-    allowed_suffixes = {f'.{ext.lower()}' for ext in ALLOWED_EXTENSIONS}
-    for legacy_file in DATA_DIR.iterdir():
-        if not legacy_file.is_file() or legacy_file.suffix.lower() not in allowed_suffixes:
-            continue
-        if legacy_file.parent != DATA_DIR:
-            continue
-        inferred_id = _infer_student_id_from_filename(legacy_file.stem)
-        if not inferred_id:
-            continue
-        new_path = _move_image_into_student_dir(str(legacy_file), inferred_id)
-        if new_path and new_path != str(legacy_file):
-            loose_moves += 1
-
-    if moved_samples or updated_primary or loose_moves:
-        app.logger.info(
-            "[DataReorg] Hoàn tất: di chuyển %d ảnh mẫu, cập nhật %d ảnh đại diện, sắp xếp %d ảnh lẻ",
-            moved_samples,
-            updated_primary,
-            loose_moves,
-        )
-
-
-organize_student_data_directories()
-
-# Hệ thống camera/vision
-vision_state: Optional[VisionPipelineState] = None
-camera_enabled = True  # Biến để bật/tắt camera
-inference_engine: Optional[InferenceEngine] = None
-
-# Khởi tạo biến global cho nhận diện khuôn mặt
-known_face_encodings = []
-known_face_names = []
-known_face_ids = []
-# DeepFace DB embeddings (Facenet512)
-known_face_embeddings = []  # np.ndarray (N, D)
-today_checked_in = set()  # student_ids đã check-in
-today_checked_out = set()  # student_ids đã checkout
-today_student_names = {}  # student_id -> name
-today_recorded_lock = threading.Lock()
-
-# Bộ nhớ đệm phiên điểm danh tín chỉ
-current_credit_session = None
-current_session_lock = threading.Lock()
-
-# Theo dõi thời gian có mặt
-presence_tracking = {}  # {student_id: {'last_seen': datetime, 'total_time': seconds}}
-presence_tracking_lock = threading.Lock()
-PRESENCE_TIMEOUT = 300  # 5 phút (300 giây) - nếu không thấy sẽ tự checkout
-
-# Tiến độ xác nhận điểm danh cho mỗi sinh viên khi streaming
-attendance_progress = {}
-attendance_progress_lock = threading.Lock()
-
-# Chống trùng lặp điểm danh (từ hệ thống mẫu Cong-Nghe-Xu-Ly-Anh)
-
-# Chỉ cho phép điểm danh lại sau 30 giây (tránh điểm danh liên tục)
-last_recognized = {}  # {student_id: datetime}
-last_recognized_lock = threading.Lock()
-RECOGNITION_COOLDOWN = 30  # Giây - thời gian chờ giữa các lần điểm danh
-
-# Server-Sent Events cho thông báo thời gian thực
-import queue
-sse_clients = []  # Danh sách các hàng đợi cho mỗi client SSE đã kết nối
-sse_clients_lock = threading.Lock()
 
 
 def parse_datetime_safe(value):
@@ -1710,53 +1506,9 @@ def broadcast_sse_event(event_data):
                 pass
 
 
-# --- Trình xem điểm danh bên ngoài (tích hợp an toàn) ----------------------
-@app.route('/external-attendance', methods=['GET'])
-def external_attendance():
-    """Hiển thị chế độ xem chỉ đọc của các tệp CSV điểm danh từ dự án đính kèm.
-    Điều này KHÔNG sửa đổi bất kỳ dữ liệu nào trong dự án chính; nó chỉ đọc các tệp CSV
-    từ `external_projects/Cong-Nghe-Xu-Ly-Anh/attendance_logs` và hiển thị chúng
-    bằng `templates/external_index.html`.
-    """
-    all_data = []
-    headers = ["ID", "Name", "Time", "Status", "SourceFile"]
-    external_dir = Path('Cong-Nghe-Xu-Ly-Anh') / 'attendance_logs'
-
-    search_name = request.args.get('name', '').strip().lower()
-    date_filter = request.args.get('date', '')
-
-    if external_dir.exists():
-        for filename in sorted(os.listdir(external_dir)):
-            if filename.endswith('.csv'):
-                file_path = external_dir / filename
-                try:
-                    with open(file_path, newline='', encoding='utf-8') as csvfile:
-                        reader = csv.reader(csvfile)
-                        rows = list(reader)
-                        if len(rows) > 1 and rows[0][:4] == ["ID", "Name", "Time", "Status"]:
-                            for row in rows[1:]:
-                                row.append(filename)
-                                all_data.append(row)
-                except Exception as e:
-                    app.logger.warning(f"Không thể đọc file external {filename}: {e}")
-
-    # Lọc cục bộ (hành vi giống như template dự án bên ngoài mong đợi)
-    if search_name:
-        all_data = [row for row in all_data if search_name in str(row[1]).lower()]
-
-    if date_filter:
-        filtered = []
-        for row in all_data:
-            try:
-                row_date = datetime.strptime(row[2], "%Y-%m-%d %H:%M:%S").date()
-                if str(row_date) == date_filter:
-                    filtered.append(row)
-            except Exception:
-                continue
-        all_data = filtered
-
-    return render_template('external_index.html', headers=headers, data=all_data,
-                           search_name=search_name, date_filter=date_filter)
+# =============================================================================
+# NOTE: Route /external-attendance đã được migrate sang app/routes/compat.py
+# =============================================================================
 
 
 def check_presence_timeout():
@@ -1972,9 +1724,6 @@ def generate_frames(
         # Làm này trước để text và bounding box không bị ngược
         frame = cv2.flip(frame, 1)
 
-        # ========================================================================
-        # HỆ THỐNG NHẬN DIỆN VÀ ĐIỂM DANH - LOGIC TỪ CONG-NGHE-XU-LY-ANH
-        # ========================================================================
         face_data = []
         detection_frame_counter += 1
         should_run_detection = detection_frame_counter >= YOLO_FRAME_SKIP
@@ -2324,64 +2073,10 @@ def generate_frames(
 
     release_camera_capture()
 
-# Routes
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    """Trang đăng nhập hệ thống."""
-    next_url = sanitize_next_url(request.args.get('next') or request.form.get('next'))
-
-    if g.get('user'):
-        return redirect(next_url or url_for('index'))
-
-    error = None
-    if request.method == 'POST':
-        username = (request.form.get('username') or '').strip()
-        password = request.form.get('password') or ''
-
-        if not username or not password:
-            error = 'Vui lòng nhập tên đăng nhập và mật khẩu'
-        else:
-            user = db.get_user_by_username(username)
-            if not user or not verify_user_password(user, password):
-                error = 'Tên đăng nhập hoặc mật khẩu không đúng'
-            else:
-                login_user(user)
-                db.update_last_login(user['id'])
-                flash('Đăng nhập thành công', 'success')
-                app.logger.info("User %s đã đăng nhập", user.get('username'))
-                
-                # Redirect based on user role
-                if next_url:
-                    return redirect(next_url)
-                
-                user_role = (user.get('role') or '').lower()
-                if user_role == 'student':
-                    return redirect(url_for('student_portal_page'))
-                else:
-                    return redirect(url_for('index'))
-
-    return render_template('login.html', next_url=next_url, error=error, active_page='login')
-
-
-@app.route('/logout')
-def logout():
-    """Đăng xuất người dùng hiện tại."""
-    user = getattr(g, 'user', None)
-    if user:
-        app.logger.info("User %s đã đăng xuất", user.get('username'))
-    logout_current_user()
-    flash('Bạn đã đăng xuất khỏi hệ thống', 'info')
-    return redirect(url_for('login'))
-
-
-@app.route('/')
-def index():
-    """Trang chính - điểm danh"""
-    attendance_data = get_today_attendance()
-    checked_in = [row for row in attendance_data if not row.get('checkout_time')]
-    checked_out = [row for row in attendance_data if row.get('checkout_time')]
-    return render_template('index.html', attendance=attendance_data,
-                           checked_in=checked_in, checked_out=checked_out)
+# =============================================================================
+# CAMERA ROUTES (được import bởi app/__init__.py cho run.py)
+# Các routes khác đã được migrate sang app/routes/
+# =============================================================================
 
 @app.route('/video_feed')
 @role_required('student')
@@ -2491,1564 +2186,41 @@ def capture_image():
         app.logger.error(f"Error capturing image: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/status')
-def status():
-    """API trạng thái hệ thống"""
-    return jsonify({
-        'demo_mode': DEMO_MODE,
-        'face_recognition_available': FACE_RECOGNITION_AVAILABLE,
-        'camera_enabled': camera_enabled,
-        'known_faces_count': len(known_face_names) if 'known_face_names' in globals() else 0
-    })
-
-# API đăng ký nhanh khuôn mặt
-@app.route('/api/quick-register', methods=['POST'])
-def api_quick_register():
-    """API đăng ký nhanh khuôn mặt"""
-    try:
-        data = request.form
-        student_id = data.get('student_id', '').strip()
-        full_name = data.get('full_name', '').strip()
-
-        app.logger.info(f"Quick register request - ID: {student_id}, Name: {full_name}")
-        app.logger.info(f"Form keys: {list(data.keys())}")
-        app.logger.info(f"Files keys: {list(request.files.keys())}")
-
-        if not all([student_id, full_name]):
-            return jsonify({'error': 'Mã sinh viên và họ tên là bắt buộc'}), 400
-
-        # Thu thập tất cả nguồn ảnh (webcam base64 + file upload)
-        sample_sources = []
-        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-
-        base64_fields = sorted(key for key in data.keys() if key.startswith('image_data'))
-        for key in base64_fields:
-            image_payload = data.get(key)
-            if image_payload:
-                sample_sources.append(('base64', image_payload))
-
-        file_candidates = []
-        if request.files:
-            file_candidates.extend(request.files.getlist('face_images'))
-            file_candidates.extend(request.files.getlist('face_image'))
-
-        seen_file_ids = set()
-        for file_storage in file_candidates:
-            if not file_storage or not file_storage.filename:
-                continue
-            marker = id(file_storage)
-            if marker in seen_file_ids:
-                continue
-            seen_file_ids.add(marker)
-            sample_sources.append(('upload', file_storage))
-
-        if len(sample_sources) < MIN_FACE_SAMPLES_PER_STUDENT:
-            return jsonify({'error': f'Cần tối thiểu {MIN_FACE_SAMPLES_PER_STUDENT} ảnh khuôn mặt (có thể chụp nhiều lần hoặc chọn nhiều file).'}), 400
-        if len(sample_sources) > MAX_FACE_SAMPLES_PER_REQUEST:
-            return jsonify({'error': f'Tối đa {MAX_FACE_SAMPLES_PER_REQUEST} ảnh khuôn mặt cho mỗi lần đăng ký.'}), 400
-
-        saved_paths = []
-        try:
-            for idx, (source_type, payload) in enumerate(sample_sources):
-                suffix = f"{idx:02d}"
-                if source_type == 'base64':
-                    path = save_base64_face_image(payload, student_id, full_name, suffix=suffix, timestamp=timestamp)
-                else:
-                    path = save_uploaded_face_image(payload, student_id, full_name, suffix=suffix, timestamp=timestamp)
-                saved_paths.append(path)
-        except ValueError as err:
-            for path in saved_paths:
-                safe_delete_file(path)
-            return jsonify({'error': str(err)}), 400
-
-        primary_face_path = saved_paths[0]
-        face_encoding_blob = extract_face_encoding(primary_face_path)
-
-        email = data.get('email', f'{student_id}@student.edu.vn')
-        phone = data.get('phone', '')
-        class_name = data.get('class_name', 'Chưa phân lớp')
-
-        created, credentials = db.add_student(
-            student_id,
-            full_name,
-            email,
-            phone,
-            class_name,
-            primary_face_path,
-            face_encoding=face_encoding_blob,
-        )
-        if not created:
-            for path in saved_paths:
-                safe_delete_file(path)
-            return jsonify({'error': 'Mã sinh viên đã tồn tại'}), 400
-
-        for idx, sample_path in enumerate(saved_paths):
-            db.add_face_sample(student_id, sample_path, is_primary=(idx == 0))
-
-        load_known_faces()
-
-        payload = {
-            'success': True,
-            'message': f'Đăng ký thành công cho {full_name}! Đã lưu {len(saved_paths)} ảnh.',
-            'samples': len(saved_paths),
-        }
-        if credentials:
-            payload['credentials'] = credentials
-        return jsonify(payload), 200
-
-    except Exception as e:
-        app.logger.error(f"Quick registration error: {e}")
-        return jsonify({'error': f'Lỗi: {str(e)}'}), 500
-
-# Các route trang
-@app.route('/students')
-@role_required('admin')
-def students_page():
-    """Trang quản lý sinh viên"""
-    return render_template('students.html')
-
-@app.route('/test-students')
-def test_students_page():
-    """Trang test API students"""
-    # Template test chuyên dụng đã bị xóa trong quá trình dọn dẹp; sử dụng lại
-    # trang quản lý sinh viên để route vẫn hoạt động.
-    return render_template('students.html')
-
-@app.route('/reports')
-def reports_page():
-    """Trang báo cáo"""
-    return render_template('reports.html')
-
-@app.route('/classes')
-@role_required('admin')
-def classes_page():
-    """Trang quản lý lớp học"""
-    try:
-        admin_classes = db.get_all_classes()
-        credit_classes = db.list_credit_classes_overview()
-        teacher_options = db.get_all_teachers()
-        classes = admin_classes + credit_classes
-
-        total_admin = len(admin_classes)
-        total_credit = len(credit_classes)
-        total_classes = total_admin + total_credit
-
-        # Sử dụng số lượng sinh viên của lớp hành chính; các lớp tín chỉ bao gồm số lượng riêng
-        total_students = sum(cls.get('student_count', 0) for cls in admin_classes)
-        active_classes = sum(1 for cls in admin_classes if cls.get('is_active', 1)) + sum(1 for cc in credit_classes if cc.get('is_active', 1))
-
-        attendance_rates = []
-        for cls in classes:
-            try:
-                stats = db.get_class_attendance_stats(cls['id'])
-                attendance_rates.append(stats.get('attendance_rate', 0))
-            except Exception as stats_error:
-                app.logger.debug(
-                    "Could not calculate attendance rate for class %s: %s",
-                    cls.get('id'),
-                    stats_error,
-                )
-
-        avg_attendance = round(sum(attendance_rates) / len(attendance_rates), 2) if attendance_rates else 0
-
-        return render_template(
-            'classes.html',
-            admin_classes=admin_classes,
-            credit_classes=credit_classes,
-            teacher_options=teacher_options,
-            total_classes=total_classes,
-            total_admin=total_admin,
-            total_credit=total_credit,
-            total_students=total_students,
-            active_classes=active_classes or total_classes,
-            avg_attendance=avg_attendance,
-        )
-    except Exception as error:
-        app.logger.error(f"Error loading classes page: {error}")
-        return render_template(
-            'classes.html',
-            admin_classes=[],
-            credit_classes=[],
-            teacher_options=[],
-            total_classes=0,
-            total_admin=0,
-            total_credit=0,
-            total_students=0,
-            active_classes=0,
-            avg_attendance=0,
-        )
-
-
-@app.route('/teacher/credit-classes')
-@role_required('teacher', 'admin')
-def teacher_credit_classes_page():
-    """Trang dành cho giảng viên theo dõi lớp tín chỉ của mình."""
-    teacher_id = request.args.get('teacher_id', type=int) if get_current_role() == 'admin' else None
-    teacher = resolve_teacher_context(teacher_id)
-    if get_current_role() == 'teacher' and not teacher:
-        flash('Không tìm thấy hồ sơ giảng viên cho tài khoản hiện tại.', 'warning')
-    return render_template(
-        'teacher_credit_classes.html',
-        teacher=teacher,
-        teacher_param=teacher_id,
-        active_page='teacher-classes',
-    )
-
-
-@app.route('/student/portal')
-@role_required('student', 'admin')
-def student_portal_page():
-    """Trang tổng quan cho sinh viên xem lịch học và lịch sử điểm danh."""
-    student_id = request.args.get('student_id') if get_current_role() == 'admin' else None
-    student = resolve_student_context(student_id)
-    if (student_id or get_current_role() == 'student') and not student:
-        flash('Không tìm thấy thông tin sinh viên phù hợp.', 'warning')
-    return render_template(
-        'student_portal.html',
-        student=student,
-        student_param=student_id,
-        active_page='student-portal',
-    )
-
-@app.route('/api/students', methods=['GET'])
-@role_required('admin')
-def api_get_students():
-    """API lấy danh sách sinh viên"""
-    try:
-        students = db.get_all_students(active_only=True)
-        class_map = {
-            cls['id']: cls['class_name']
-            for cls in db.get_all_classes()
-        }
-        students_list = [
-            serialize_student_record(student, class_map)
-            for student in students
-        ]
-        return jsonify({'success': True, 'data': students_list})
-    except Exception as e:
-        app.logger.error(f"Error getting students: {e}")
-        return jsonify({'success': False, 'data': [], 'error': str(e)}), 500
-
-
-@app.route('/api/students', methods=['POST'])
-@role_required('admin')
-def api_create_student():
-    """API tạo sinh viên mới"""
-    data = get_request_data()
-    student_id = (data.get('student_id') or '').strip()
-    full_name = (data.get('full_name') or '').strip()
-
-    if not student_id or not full_name:
-        return jsonify({'success': False, 'message': 'Mã sinh viên và họ tên là bắt buộc'}), 400
-
-    email = (data.get('email') or '').strip() or None
-    phone = (data.get('phone') or '').strip() or None
-    class_name = (data.get('class_name') or '').strip() or None
-    face_files = []
-    if request.files:
-        face_files.extend(request.files.getlist('face_images'))
-        fallback_file = request.files.get('face_image')
-        if fallback_file:
-            face_files.append(fallback_file)
-
-    face_files = [f for f in face_files if f and f.filename]
-    if len(face_files) < MIN_FACE_SAMPLES_PER_STUDENT:
-        return jsonify({
-            'success': False,
-            'message': f'Cần tải lên tối thiểu {MIN_FACE_SAMPLES_PER_STUDENT} ảnh khuôn mặt rõ nét.',
-        }), 400
-    if len(face_files) > MAX_FACE_SAMPLES_PER_REQUEST:
-        return jsonify({
-            'success': False,
-            'message': f'Tối đa {MAX_FACE_SAMPLES_PER_REQUEST} ảnh khuôn mặt mỗi lần thêm sinh viên.',
-        }), 400
-
-    timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-    face_image_paths = []
-
-    try:
-        for idx, file in enumerate(face_files):
-            path = save_uploaded_face_image(
-                file,
-                student_id,
-                full_name,
-                suffix=f"{idx:02d}",
-                timestamp=timestamp,
-            )
-            face_image_paths.append(path)
-
-        primary_face_path = face_image_paths[0] if face_image_paths else None
-        face_encoding_blob = extract_face_encoding(primary_face_path) if primary_face_path else None
-
-        created, credentials = db.add_student(
-            student_id=student_id,
-            full_name=full_name,
-            email=email,
-            phone=phone,
-            class_name=class_name,
-            face_image_path=primary_face_path,
-            face_encoding=face_encoding_blob,
-        )
-
-        if not created:
-            for path in face_image_paths:
-                safe_delete_file(path)
-            return jsonify({'success': False, 'message': 'Mã sinh viên đã tồn tại'}), 400
-
-        for idx, sample_path in enumerate(face_image_paths):
-            db.add_face_sample(student_id, sample_path, is_primary=(idx == 0))
-
-        load_known_faces()
-
-        student = db.get_student(student_id)
-        response_payload = {
-            'success': True,
-            'data': serialize_student_record(student),
-            'samples': len(face_image_paths),
-        }
-        if credentials:
-            response_payload['credentials'] = credentials
-        return jsonify(response_payload), 201
-    except ValueError as err:
-        for path in face_image_paths:
-            safe_delete_file(path)
-        return jsonify({'success': False, 'message': str(err)}), 400
-    except Exception as err:
-        app.logger.error(f"Error creating student {student_id}: {err}", exc_info=True)
-        for path in face_image_paths:
-            safe_delete_file(path)
-        return jsonify({'success': False, 'message': 'Không thể tạo sinh viên'}), 500
-
-
-@app.route('/api/students/<student_id>', methods=['GET', 'PUT', 'DELETE'])
-@role_required('admin')
-def api_student_detail(student_id):
-    """API thao tác với sinh viên cụ thể"""
-    student_id = (student_id or '').strip()
-    if not student_id:
-        return jsonify({'success': False, 'message': 'Mã sinh viên không hợp lệ'}), 400
-
-    student = db.get_student(student_id)
-    if not student:
-        return jsonify({'success': False, 'message': 'Không tìm thấy sinh viên'}), 404
-
-    if request.method == 'GET':
-        return jsonify({'success': True, 'data': serialize_student_record(student)})
-
-    if request.method == 'PUT':
-        student_data = dict(student)
-        data = get_request_data()
-        updates = {}
-
-        for field in ('full_name', 'email', 'phone'):
-            if field in data:
-                updates[field] = (data.get(field) or '').strip() or None
-
-        if 'class_name' in data:
-            updates['class_name'] = (data.get('class_name') or '').strip()
-
-        if 'is_active' in data:
-            bool_value = parse_bool(data.get('is_active'))
-            if bool_value is not None:
-                updates['is_active'] = bool_value
-
-        face_files = []
-        if request.files:
-            face_files.extend(request.files.getlist('face_images'))
-            fallback_file = request.files.get('face_image')
-            if fallback_file:
-                face_files.append(fallback_file)
-
-        face_files = [f for f in face_files if f and f.filename]
-        saved_face_paths = []
-        if face_files:
-            if len(face_files) < MIN_FACE_SAMPLES_PER_STUDENT:
-                return jsonify({
-                    'success': False,
-                    'message': f'Cần tải lên tối thiểu {MIN_FACE_SAMPLES_PER_STUDENT} ảnh khuôn mặt rõ nét.',
-                }), 400
-            if len(face_files) > MAX_FACE_SAMPLES_PER_REQUEST:
-                return jsonify({
-                    'success': False,
-                    'message': f'Tối đa {MAX_FACE_SAMPLES_PER_REQUEST} ảnh khuôn mặt mỗi lần cập nhật.',
-                }), 400
-
-            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-            try:
-                for idx, file in enumerate(face_files):
-                    path = save_uploaded_face_image(
-                        file,
-                        student_id,
-                        updates.get('full_name') or student_data.get('full_name'),
-                        suffix=f"{idx:02d}",
-                        timestamp=timestamp,
-                    )
-                    saved_face_paths.append(path)
-
-                primary_face_path = saved_face_paths[0]
-                updates['face_image_path'] = primary_face_path
-                new_encoding = extract_face_encoding(primary_face_path)
-                if new_encoding:
-                    updates['face_encoding'] = new_encoding
-            except ValueError as err:
-                for path in saved_face_paths:
-                    safe_delete_file(path)
-                return jsonify({'success': False, 'message': str(err)}), 400
-
-        if not updates:
-            for path in saved_face_paths:
-                safe_delete_file(path)
-            return jsonify({'success': False, 'message': 'Không có dữ liệu để cập nhật'}), 400
-
-        try:
-            updated = db.update_student(student_id, **updates)
-        except ValueError as err:
-            for path in saved_face_paths:
-                safe_delete_file(path)
-            return jsonify({'success': False, 'message': str(err)}), 400
-
-        if not updated:
-            for path in saved_face_paths:
-                safe_delete_file(path)
-            return jsonify({'success': False, 'message': 'Không thể cập nhật sinh viên'}), 400
-
-        if saved_face_paths:
-            previous_face_path = student_data.get('face_image_path')
-            if previous_face_path and previous_face_path not in saved_face_paths:
-                safe_delete_file(previous_face_path)
-            for idx, sample_path in enumerate(saved_face_paths):
-                db.add_face_sample(student_id, sample_path, is_primary=(idx == 0))
-            load_known_faces()
-
-        student = db.get_student(student_id)
-        return jsonify({'success': True, 'data': serialize_student_record(student)})
-
-    # Phương thức DELETE
-    permanent = parse_bool(request.args.get('permanent'), default=True)
-    deleted = db.delete_student(student_id, permanent=permanent)
-    if not deleted:
-        return jsonify({'success': False, 'message': 'Không thể xóa sinh viên'}), 400
-    if permanent:
-        safe_delete_file(student.get('face_image_path'))
-    return jsonify({'success': True})
-
-
-@app.route('/api/classes', methods=['GET'])
-@role_required('admin')
-def api_get_classes():
-    """API lấy danh sách lớp học"""
-    try:
-        classes = db.get_all_classes()
-        for cls in classes:
-            cls['class_type'] = 'administrative'
-        return jsonify({'success': True, 'data': classes})
-    except Exception as e:
-        app.logger.error(f"Error getting classes: {e}")
-        return jsonify({'success': False, 'data': [], 'message': str(e)}), 500
-
-
-@app.route('/api/credit-classes', methods=['GET'])
-def api_get_credit_classes():
-    """API lấy danh sách lớp tín chỉ đang hoạt động."""
-    teacher_only = parse_bool(request.args.get('mine'))
-    teacher_id = None
-    if teacher_only and getattr(g, 'user', None):
-        teacher_row = db.get_teacher_by_user(g.user['id']) if get_current_role() == 'teacher' else None
-        if teacher_row:
-            teacher_id = teacher_row.get('id')
-    try:
-        credit_classes = db.list_credit_classes_overview(teacher_id=teacher_id)
-        for cls in credit_classes:
-            cls['class_type'] = 'credit'
-            cls['display_name'] = ' · '.join(
-                part for part in [cls.get('subject_name'), cls.get('credit_code')] if part
-            ) or cls.get('subject_name') or cls.get('credit_code')
-            cls['student_count'] = cls.get('student_count', 0) or 0
-        return jsonify({'success': True, 'data': credit_classes})
-    except Exception as err:
-        app.logger.error(f"Error getting credit classes: {err}", exc_info=True)
-        return jsonify({'success': False, 'data': [], 'message': 'Không thể tải lớp tín chỉ'}), 500
-
-
-@app.route('/api/credit-classes', methods=['POST'])
-@role_required('admin')
-def api_create_credit_class():
-    data = get_request_data()
-    credit_code = (data.get('credit_code') or '').strip()
-    subject_name = (data.get('subject_name') or '').strip()
-    teacher_id = data.get('teacher_id')
-
-    if not credit_code or not subject_name:
-        return jsonify({'success': False, 'message': 'Mã lớp tín chỉ và tên môn học là bắt buộc'}), 400
-
-    try:
-        teacher_id = int(teacher_id)
-    except (TypeError, ValueError):
-        return jsonify({'success': False, 'message': 'Vui lòng chọn giảng viên phụ trách'}), 400
-
-    teacher = db.get_teacher(teacher_id)
-    if not teacher:
-        return jsonify({'success': False, 'message': 'Giảng viên không tồn tại hoặc đã bị vô hiệu hóa'}), 400
-
-    enrollment_limit = data.get('enrollment_limit')
-    if enrollment_limit in (None, '', []):
-        enrollment_limit = None
-    else:
-        try:
-            enrollment_limit = int(enrollment_limit)
-        except (TypeError, ValueError):
-            return jsonify({'success': False, 'message': 'Sĩ số tối đa không hợp lệ'}), 400
-
-    try:
-        credit_class_id = db.create_credit_class(
-            credit_code=credit_code,
-            subject_name=subject_name,
-            teacher_id=teacher_id,
-            semester=data.get('semester'),
-            academic_year=data.get('academic_year'),
-            room=data.get('room'),
-            schedule_info=data.get('schedule_info'),
-            enrollment_limit=enrollment_limit,
-            notes=data.get('notes'),
-            status=data.get('status') or 'draft'
-        )
-        record = serialize_credit_class_record(db.get_credit_class(credit_class_id))
-        return jsonify({'success': True, 'data': record}), 201
-    except ValueError as exc:
-        return jsonify({'success': False, 'message': str(exc)}), 400
-    except Exception as exc:
-        app.logger.error(f"Error creating credit class: {exc}", exc_info=True)
-        return jsonify({'success': False, 'message': 'Không thể tạo lớp tín chỉ'}), 500
-
-
-@app.route('/api/credit-classes/<int:credit_class_id>', methods=['GET', 'PUT', 'DELETE'])
-@role_required('admin')
-def api_credit_class_detail(credit_class_id):
-    record = db.get_credit_class(credit_class_id)
-    if not record:
-        return jsonify({'success': False, 'message': 'Không tìm thấy lớp tín chỉ'}), 404
-
-    if request.method == 'GET':
-        return jsonify({'success': True, 'data': serialize_credit_class_record(record)})
-
-    if request.method == 'PUT':
-        data = get_request_data()
-        updates = {}
-
-        for field in ('credit_code', 'subject_name', 'semester', 'academic_year', 'room', 'schedule_info', 'status', 'notes'):
-            if field in data:
-                value = data.get(field)
-                updates[field] = value.strip() if isinstance(value, str) else value
-
-        if 'teacher_id' in data:
-            teacher_id = data.get('teacher_id')
-            try:
-                teacher_id = int(teacher_id)
-            except (TypeError, ValueError):
-                return jsonify({'success': False, 'message': 'Giảng viên không hợp lệ'}), 400
-            teacher = db.get_teacher(teacher_id)
-            if not teacher:
-                return jsonify({'success': False, 'message': 'Không tìm thấy giảng viên'}), 400
-            updates['teacher_id'] = teacher_id
-
-        if 'enrollment_limit' in data:
-            limit_value = data.get('enrollment_limit')
-            if limit_value in (None, '', []):
-                updates['enrollment_limit'] = None
-            else:
-                try:
-                    updates['enrollment_limit'] = int(limit_value)
-                except (TypeError, ValueError):
-                    return jsonify({'success': False, 'message': 'Sĩ số tối đa không hợp lệ'}), 400
-
-        if not updates:
-            return jsonify({'success': False, 'message': 'Không có dữ liệu để cập nhật'}), 400
-
-        try:
-            updated = db.update_credit_class(credit_class_id, **updates)
-            if not updated:
-                return jsonify({'success': False, 'message': 'Không thể cập nhật lớp tín chỉ'}), 400
-            refreshed = serialize_credit_class_record(db.get_credit_class(credit_class_id))
-            return jsonify({'success': True, 'data': refreshed})
-        except Exception as exc:
-            app.logger.error(f"Error updating credit class {credit_class_id}: {exc}", exc_info=True)
-            return jsonify({'success': False, 'message': 'Lỗi khi cập nhật lớp tín chỉ'}), 500
-
-    # DELETE
-    try:
-        deleted = db.delete_credit_class(credit_class_id)
-        if not deleted:
-            return jsonify({'success': False, 'message': 'Không thể xóa lớp tín chỉ'}), 400
-        return jsonify({'success': True})
-    except Exception as exc:
-        app.logger.error(f"Error deleting credit class {credit_class_id}: {exc}", exc_info=True)
-        return jsonify({'success': False, 'message': 'Lỗi khi xóa lớp tín chỉ'}), 500
-
-
-@app.route('/api/teacher/credit-classes', methods=['GET'])
-@role_required('teacher', 'admin')
-def api_teacher_credit_classes():
-    teacher_param = request.args.get('teacher_id', type=int) if get_current_role() == 'admin' else None
-    teacher = resolve_teacher_context(teacher_param)
-    if get_current_role() == 'teacher' and not teacher:
-        return jsonify({'success': False, 'message': 'Không tìm thấy thông tin giảng viên'}), 404
-
-    teacher_filter_id = teacher.get('id') if teacher else None
-    try:
-        credit_classes = db.list_credit_classes_overview(teacher_id=teacher_filter_id)
-        results = []
-        for cls in credit_classes:
-            session_row = db.get_active_session_for_class(cls['id'])
-            payload = dict(cls)
-            payload['class_type'] = 'credit'
-            payload['display_name'] = ' · '.join(
-                part for part in [cls.get('subject_name'), cls.get('credit_code')] if part
-            ) or cls.get('subject_name') or cls.get('credit_code')
-            payload['student_count'] = cls.get('student_count', 0) or 0
-            payload['active_session'] = serialize_session_payload(session_row)
-            results.append(payload)
-
-        return jsonify({
-            'success': True,
-            'data': results,
-            'teacher': teacher,
-        })
-    except Exception as exc:
-        app.logger.error("Error loading teacher credit classes: %s", exc, exc_info=True)
-        return jsonify({'success': False, 'message': 'Không thể tải danh sách lớp'}), 500
-
-
-@app.route('/api/teacher/credit-classes/<int:credit_class_id>/students', methods=['GET'])
-@role_required('teacher', 'admin')
-def api_teacher_credit_class_students(credit_class_id):
-    teacher_param = request.args.get('teacher_id', type=int) if get_current_role() == 'admin' else None
-    teacher = resolve_teacher_context(teacher_param)
-    credit_class = db.get_credit_class(credit_class_id)
-    if not credit_class:
-        return jsonify({'success': False, 'message': 'Không tìm thấy lớp tín chỉ'}), 404
-    if teacher and credit_class.get('teacher_id') and credit_class.get('teacher_id') != teacher.get('id'):
-        return jsonify({'success': False, 'message': 'Không có quyền truy cập lớp này'}), 403
-
-    try:
-        roster = db.get_credit_class_students(credit_class_id) or []
-        today_attendance = db.get_today_attendance(credit_class_id=credit_class_id) or []
-
-        present_map = {}
-        for att in today_attendance:
-            sid = (att or {}).get('student_id')
-            if not sid:
-                continue
-            present_map[sid] = {
-                'attendance_id': att.get('attendance_id'),
-                'check_in_time': att.get('check_in_time'),
-                'checkout_time': att.get('checkout_time'),
-                'checked_out': bool(att.get('checkout_time')),
-            }
-
-        serialized = []
-        for student in roster:
-            srec = dict(student)
-            sid = srec.get('student_id')
-            attendance_info = present_map.get(sid)
-            if attendance_info:
-                srec['is_present_today'] = True
-                srec['checked_out'] = attendance_info.get('checked_out', False)
-                srec['attendance_id'] = attendance_info.get('attendance_id')
-                srec['check_in_time'] = attendance_info.get('check_in_time')
-            else:
-                srec['is_present_today'] = False
-                srec['checked_out'] = False
-                srec['attendance_id'] = None
-                srec['check_in_time'] = None
-            serialized.append(srec)
-
-        return jsonify({
-            'success': True,
-            'credit_class': dict(credit_class),
-            'students': serialized,
-            'count': len(serialized),
-        })
-    except Exception as exc:
-        app.logger.error("Error loading roster for credit class %s: %s", credit_class_id, exc, exc_info=True)
-        return jsonify({'success': False, 'message': 'Không thể tải danh sách sinh viên'}), 500
-
-
-@app.route('/api/teacher/credit-classes/<int:credit_class_id>/sessions', methods=['GET'])
-@role_required('teacher', 'admin')
-def api_teacher_credit_class_sessions(credit_class_id):
-    teacher_param = request.args.get('teacher_id', type=int) if get_current_role() == 'admin' else None
-    teacher = resolve_teacher_context(teacher_param)
-    credit_class = db.get_credit_class(credit_class_id)
-    if not credit_class:
-        return jsonify({'success': False, 'message': 'Không tìm thấy lớp tín chỉ'}), 404
-    if teacher and credit_class.get('teacher_id') and credit_class.get('teacher_id') != teacher.get('id'):
-        return jsonify({'success': False, 'message': 'Không có quyền truy cập lớp này'}), 403
-
-    limit = request.args.get('limit', 20, type=int) or 20
-    limit = max(5, min(limit, 100))
-    try:
-        sessions = db.list_sessions_for_class(credit_class_id, limit=limit)
-        serialized = [serialize_session_payload(row) for row in sessions]
-        return jsonify({'success': True, 'credit_class': dict(credit_class), 'sessions': serialized})
-    except Exception as exc:
-        app.logger.error("Error loading sessions for credit class %s: %s", credit_class_id, exc, exc_info=True)
-        return jsonify({'success': False, 'message': 'Không thể tải phiên điểm danh'}), 500
-
-
-@app.route('/api/reports/credit-classes/<int:credit_class_id>/sessions', methods=['GET'])
-def api_reports_credit_class_sessions(credit_class_id):
-    """API công khai phục vụ bộ lọc báo cáo lấy danh sách phiên của lớp tín chỉ."""
-    limit = request.args.get('limit', 25, type=int) or 25
-    limit = max(5, min(limit, 100))
-
-    try:
-        credit_class = db.get_credit_class(credit_class_id)
-        if not credit_class:
-            return jsonify({'success': False, 'message': 'Không tìm thấy lớp tín chỉ'}), 404
-
-        sessions = db.list_sessions_for_class(credit_class_id, limit=limit) or []
-        payload = [serialize_session_payload(session) for session in sessions]
-        return jsonify({
-            'success': True,
-            'credit_class': serialize_credit_class_record(credit_class),
-            'sessions': payload,
-        })
-    except Exception as exc:
-        app.logger.error(
-            "Error loading report sessions for credit class %s: %s",
-            credit_class_id,
-            exc,
-            exc_info=True,
-        )
-        return jsonify({'success': False, 'message': 'Không thể tải danh sách phiên'}), 500
-
-
-@app.route('/api/student/credit-classes', methods=['GET'])
-@role_required('student', 'admin')
-def api_student_credit_classes():
-    student_param = request.args.get('student_id') if get_current_role() == 'admin' else None
-    student = resolve_student_context(student_param)
-    if not student:
-        return jsonify({'success': False, 'message': 'Không tìm thấy sinh viên'}), 404
-
-    try:
-        student_identifier = student.get('id') or student.get('student_id')
-        classes = db.get_credit_classes_for_student(student_identifier)
-        formatted = []
-        active_sessions = 0
-        known_class_ids = set()
-        for cls in classes:
-            session_row = db.get_active_session_for_class(cls['id'])
-            if session_row:
-                active_sessions += 1
-            entry = dict(cls)
-            entry['display_name'] = ' · '.join(
-                part for part in [cls.get('subject_name'), cls.get('credit_code')] if part
-            ) or cls.get('subject_name') or cls.get('credit_code')
-            entry['active_session'] = serialize_session_payload(session_row)
-            known_class_ids.add(cls.get('id'))
-            formatted.append(entry)
-
-        # Nếu sinh viên chưa đăng ký nhưng đang có phiên mở, hiển thị ở dạng session-only
-        fallback_session = get_active_attendance_session()
-        if fallback_session:
-            fallback_class_id = fallback_session.get('credit_class_id')
-            if fallback_class_id and fallback_class_id not in known_class_ids:
-                credit_cls = db.get_credit_class(fallback_class_id)
-                if credit_cls:
-                    entry = dict(credit_cls)
-                    entry['display_name'] = ' · '.join(
-                        part for part in [credit_cls.get('subject_name'), credit_cls.get('credit_code')] if part
-                    ) or credit_cls.get('subject_name') or credit_cls.get('credit_code')
-                    entry['active_session'] = serialize_session_payload(fallback_session)
-                    entry['is_session_only'] = True
-                    if 'student_count' not in entry or entry.get('student_count') is None:
-                        try:
-                            roster = db.get_credit_class_students(fallback_class_id) or []
-                            entry['student_count'] = len(roster)
-                        except Exception:
-                            entry['student_count'] = 0
-                    formatted.insert(0, entry)
-                    active_sessions += 1 if (fallback_session.get('status') == 'open') else 0
-
-        summary = {
-            'total_classes': len(formatted),
-            'active_sessions': active_sessions,
-        }
-
-        return jsonify({
-            'success': True,
-            'student': {
-                'student_id': student.get('student_id'),
-                'full_name': student.get('full_name'),
-                'email': student.get('email'),
-                'class_id': student.get('class_id'),
-            },
-            'classes': formatted,
-            'summary': summary,
-        })
-    except Exception as exc:
-        app.logger.error("Error loading credit classes for student %s: %s", student.get('student_id'), exc, exc_info=True)
-        return jsonify({'success': False, 'message': 'Không thể tải danh sách lớp tín chỉ'}), 500
-
-
-@app.route('/api/classes', methods=['POST'])
-@role_required('admin')
-def api_create_class():
-    """API tạo lớp học mới"""
-    data = get_request_data()
-    class_code = (data.get('class_code') or '').strip()
-    class_name = (data.get('class_name') or '').strip()
-
-    if not class_code or not class_name:
-        return jsonify({'success': False, 'message': 'Mã lớp và tên lớp là bắt buộc'}), 400
-
-    try:
-        class_id = db.create_class(
-            class_code=class_code,
-            class_name=class_name,
-            semester=data.get('semester'),
-            academic_year=data.get('academic_year'),
-            description=data.get('description'),
-        )
-        created_class = db.get_class_by_id(class_id)
-        return jsonify({'success': True, 'data': created_class}), 201
-    except ValueError as conflict:
-        return jsonify({'success': False, 'message': str(conflict)}), 400
-    except Exception as e:
-        app.logger.error(f"Error creating class: {e}")
-        return jsonify({'success': False, 'message': 'Không thể tạo lớp học'}), 500
-
-
-@app.route('/api/classes/<int:class_id>', methods=['GET', 'PUT', 'DELETE'])
-@role_required('admin')
-def api_class_detail(class_id):
-    """API lấy/cập nhật/xóa lớp học"""
-    if request.method == 'GET':
-        class_data = db.get_class_by_id(class_id)
-        if not class_data:
-            return jsonify({'success': False, 'message': 'Không tìm thấy lớp học'}), 404
-        class_data = dict(class_data)
-        students = db.get_students_by_class(class_id)
-        class_data['student_count'] = len(students)
-        return jsonify({'success': True, 'data': class_data})
-
-    if request.method == 'PUT':
-        data = get_request_data()
-        updates = {k: v for k, v in data.items() if v not in (None, '')}
-        try:
-            updated = db.update_class(class_id, **updates)
-            if not updated:
-                return jsonify({'success': False, 'message': 'Không thể cập nhật lớp học'}), 400
-            return jsonify({'success': True, 'data': db.get_class_by_id(class_id)})
-        except Exception as e:
-            app.logger.error(f"Error updating class {class_id}: {e}")
-            return jsonify({'success': False, 'message': 'Lỗi khi cập nhật lớp học'}), 500
-
-    try:
-        deleted = db.delete_class(class_id)
-        if not deleted:
-            return jsonify({'success': False, 'message': 'Không thể xóa lớp học'}), 400
-        return jsonify({'success': True})
-    except Exception as e:
-        app.logger.error(f"Error deleting class {class_id}: {e}")
-        return jsonify({'success': False, 'message': 'Lỗi khi xóa lớp học'}), 500
-
-
-@app.route('/api/classes/<int:class_id>/students', methods=['GET'])
-@role_required('admin')
-def api_class_students(class_id):
-    """API danh sách sinh viên trong lớp"""
-    class_data = db.get_class_by_id(class_id)
-    if not class_data:
-        return jsonify({'success': False, 'message': 'Không tìm thấy lớp học'}), 404
-
-    try:
-        students = db.get_students_by_class(class_id)
-        serialized = [serialize_student_record(student) for student in students]
-        return jsonify({
-            'success': True,
-            'class': class_data,
-            'data': serialized,
-        })
-    except Exception as error:
-        app.logger.error(f"Error getting students for class {class_id}: {error}")
-        return jsonify({'success': False, 'message': 'Không thể tải danh sách sinh viên'}), 500
-
-
-@app.route('/api/classes/<int:class_id>/stats', methods=['GET'])
-@role_required('admin')
-def api_class_stats(class_id):
-    """API thống kê lớp học"""
-    class_data = db.get_class_by_id(class_id)
-    if not class_data:
-        return jsonify({'success': False, 'message': 'Không tìm thấy lớp học'}), 404
-
-    try:
-        stats = db.get_class_attendance_stats(class_id)
-        if not stats:
-            stats = {}
-        stats_payload = {
-            'total_students': stats.get('total_students', 0),
-            'attended_students': stats.get('attended_students', 0),
-            'attendance_rate': stats.get('attendance_rate', 0),
-            'daily_stats': stats.get('daily_stats', []),
-            'period': stats.get('period'),
-        }
-        return jsonify({'success': True, 'class': class_data, 'stats': stats_payload})
-    except Exception as error:
-        app.logger.error(f"Error getting stats for class {class_id}: {error}")
-        return jsonify({'success': False, 'message': 'Không thể tải thống kê lớp học'}), 500
-
-
-@app.route('/api/attendance/session', methods=['GET'])
-def api_get_attendance_session():
-    """Trạng thái phiên điểm danh tín chỉ hiện tại."""
-    session_row = get_active_attendance_session()
-    return jsonify({
-        'success': True,
-        'session': serialize_session_payload(session_row),
-        'default_duration': SESSION_DURATION_MINUTES,
-    })
-
-
-@app.route('/api/attendance/session/open', methods=['POST'])
-@role_required('teacher')
-def api_open_attendance_session():
-    data = get_request_data()
-    credit_class_id = data.get('credit_class_id')
-    if not credit_class_id:
-        return jsonify({'success': False, 'message': 'Vui lòng chọn lớp tín chỉ'}), 400
-
-    try:
-        credit_class_id = int(credit_class_id)
-    except (ValueError, TypeError):
-        return jsonify({'success': False, 'message': 'Mã lớp tín chỉ không hợp lệ'}), 400
-
-    active_session = get_active_attendance_session()
-    if active_session:
-        active_class_id = active_session.get('credit_class_id')
-        if active_class_id and int(active_class_id) != int(credit_class_id):
-            return jsonify({'success': False, 'message': 'Đã có phiên điểm danh đang mở'}), 400
-        try:
-            db.close_attendance_session(active_session['id'], status='superseded')
-            set_active_session_cache(None)
-            broadcast_session_snapshot(force_reload=True)
-        except Exception as exc:
-            app.logger.warning(
-                "Không thể tự động đóng phiên cũ %s: %s",
-                active_session.get('id'),
-                exc,
-            )
-            return jsonify({'success': False, 'message': 'Không thể đóng phiên cũ'}), 500
-
-    teacher_ctx = resolve_teacher_context()
-    if not teacher_ctx:
-        return jsonify({'success': False, 'message': 'Không tìm thấy thông tin giảng viên'}), 403
-
-    credit_class = db.get_credit_class(credit_class_id)
-    if not credit_class or not credit_class.get('is_active', 1):
-        return jsonify({'success': False, 'message': 'Không tìm thấy lớp tín chỉ'}), 404
-
-    owner_id = credit_class.get('teacher_id')
-    if not owner_id or int(owner_id) != int(teacher_ctx.get('id')):
-        return jsonify({'success': False, 'message': 'Lớp tín chỉ không thuộc quyền quản lý của bạn'}), 403
-
-    duration_minutes = data.get('duration_minutes')
-    try:
-        duration_minutes = int(duration_minutes) if duration_minutes is not None else SESSION_DURATION_MINUTES
-    except (ValueError, TypeError):
-        duration_minutes = SESSION_DURATION_MINUTES
-    duration_minutes = max(1, min(duration_minutes, 90))
-
-    now = datetime.now()
-    deadline = (now + timedelta(minutes=duration_minutes)).isoformat()
-
-    try:
-        session_id = db.create_attendance_session(
-            credit_class_id=credit_class_id,
-            opened_by=g.user['id'] if getattr(g, 'user', None) else None,
-            session_date=now.date().isoformat(),
-            checkin_deadline=deadline,
-            checkout_deadline=deadline,
-            status='open',
-            notes=data.get('notes')
-        )
-        session_row = db.get_session_by_id(session_id)
-        set_active_session_cache(session_row)
-        reset_session_runtime_state(session_row)
-        payload = serialize_session_payload(session_row)
-        broadcast_session_snapshot()
-        return jsonify({'success': True, 'session': payload})
-    except ValueError as err:
-        return jsonify({'success': False, 'message': str(err)}), 400
-    except Exception as exc:
-        app.logger.error(f"Error opening attendance session: {exc}", exc_info=True)
-        return jsonify({'success': False, 'message': 'Không thể mở phiên điểm danh'}), 500
-
-
-@app.route('/api/attendance/session/close', methods=['POST'])
-@role_required('admin', 'teacher')
-def api_close_attendance_session():
-    data = get_request_data()
-    session_id = data.get('session_id')
-    if session_id:
-        try:
-            session_id = int(session_id)
-        except (ValueError, TypeError):
-            return jsonify({'success': False, 'message': 'Mã phiên không hợp lệ'}), 400
-    else:
-        current_session = get_active_attendance_session()
-        if not current_session:
-            return jsonify({'success': False, 'message': 'Không có phiên nào đang mở'}), 400
-        session_id = current_session.get('id')
-
-    try:
-        closed = db.close_attendance_session(session_id)
-        if not closed:
-            return jsonify({'success': False, 'message': 'Không thể đóng phiên'}), 400
-        set_active_session_cache(None)
-        broadcast_session_snapshot(force_reload=True)
-        payload = serialize_session_payload(db.get_session_by_id(session_id))
-        return jsonify({'success': True, 'session': payload})
-    except Exception as exc:
-        app.logger.error(f"Error closing attendance session {session_id}: {exc}", exc_info=True)
-        return jsonify({'success': False, 'message': 'Không thể đóng phiên điểm danh'}), 500
-
-
-@app.route('/api/attendance/session/<int:session_id>/mark', methods=['POST'])
-@role_required('teacher', 'admin')
-def api_mark_attendance_for_session(session_id):
-    """Cho phép giảng viên (hoặc admin) điểm danh/checkout thủ công cho một phiên cụ thể."""
-    data = get_request_data()
-    student_code = data.get('student_id') or data.get('student_code')
-    action = (data.get('action') or 'checkin').lower()
-
-    if not student_code:
-        return jsonify({'success': False, 'message': 'Missing student_id'}), 400
-
-    session_row = db.get_session_by_id(session_id)
-    if not session_row:
-        return jsonify({'success': False, 'message': 'Session not found'}), 404
-
-    credit_class = db.get_credit_class(session_row.get('credit_class_id'))
-    if not credit_class:
-        return jsonify({'success': False, 'message': 'Credit class not found'}), 404
-
-    # Ủy quyền: giảng viên chỉ có thể điểm danh cho các lớp của họ
-    if get_current_role() == 'teacher':
-        teacher_ctx = resolve_teacher_context()
-        if not teacher_ctx or int(credit_class.get('teacher_id') or 0) != int(teacher_ctx.get('id')):
-            return jsonify({'success': False, 'message': 'Không có quyền trên lớp này'}), 403
-
-    # Xác định sinh viên
-    student_row = db.get_student(student_code)
-    if not student_row:
-        return jsonify({'success': False, 'message': 'Không tìm thấy sinh viên'}), 404
-    student_name = student_row.get('full_name') or student_code
-
-    try:
-        if action in ('checkin', 'mark', 'present'):
-            success = db.mark_attendance(
-                student_id=student_code,
-                student_name=student_name,
-                status='present',
-                confidence_score=None,
-                notes='manual by teacher',
-                credit_class_id=credit_class.get('id'),
-                session_id=session_id,
-            )
-            if success:
-                with today_recorded_lock:
-                    today_checked_in.add(student_code)
-                    today_checked_out.discard(student_code)
-                    today_student_names[student_code] = {
-                        'name': student_name,
-                        'class_name': credit_class.get('subject_name') or credit_class.get('credit_code'),
-                        'class_type': 'credit',
-                        'credit_class_id': credit_class.get('id'),
-                    }
-
-                broadcast_sse_event({
-                    'type': 'attendance_marked',
-                    'data': {
-                        'event': 'check_in',
-                        'student_id': student_code,
-                        'student_name': student_name,
-                        'timestamp': datetime.now().isoformat(),
-                        'session': serialize_session_payload(session_row),
-                    },
-                })
-                return jsonify({'success': True})
-            return jsonify({'success': False, 'message': 'Không thể điểm danh (có thể đã điểm danh trước đó)'}), 400
-
-        elif action in ('checkout', 'check_out'):
-            success = db.mark_checkout(student_code, session_id=session_id)
-            if success:
-                with today_recorded_lock:
-                    today_checked_out.add(student_code)
-
-                broadcast_sse_event({
-                    'type': 'attendance_checkout',
-                    'data': {
-                        'event': 'check_out',
-                        'student_id': student_code,
-                        'student_name': student_name,
-                        'timestamp': datetime.now().isoformat(),
-                        'session': serialize_session_payload(session_row),
-                    },
-                })
-                return jsonify({'success': True})
-            return jsonify({'success': False, 'message': 'Không thể checkout hoặc chưa điểm danh'}), 400
-
-        else:
-            return jsonify({'success': False, 'message': 'Hành động không hợp lệ'}), 400
-
-    except Exception as exc:
-        app.logger.error(f"Error in manual mark endpoint: {exc}", exc_info=True)
-        return jsonify({'success': False, 'message': 'Lỗi khi thực hiện điểm danh'}), 500
-
-
-@app.route('/api/statistics')
-def api_statistics():
-    """API thống kê"""
-    try:
-        credit_class_id = request.args.get('credit_class_id', type=int)
-        session_id = request.args.get('session_id', type=int)
-
-        attendance_data = get_today_attendance(
-            credit_class_id=credit_class_id,
-            session_id=session_id,
-        )
-
-        total_students = len(known_face_names) if known_face_names else 0
-        if credit_class_id:
-            try:
-                roster = db.get_credit_class_students(credit_class_id) or []
-                total_students = len(roster)
-            except Exception as roster_error:
-                app.logger.warning(
-                    "Không thể lấy sĩ số lớp tín chỉ %s: %s",
-                    credit_class_id,
-                    roster_error,
-                )
-        elif session_id:
-            session_row = db.get_session_by_id(session_id)
-            if session_row:
-                resolved_class_id = session_row.get('credit_class_id')
-                if resolved_class_id:
-                    try:
-                        roster = db.get_credit_class_students(resolved_class_id) or []
-                        total_students = len(roster)
-                    except Exception as roster_error:
-                        app.logger.warning(
-                            "Không thể lấy sĩ số cho phiên %s: %s",
-                            session_id,
-                            roster_error,
-                        )
-
-        attended_students = len(attendance_data)
-        attendance_rate = (attended_students / total_students * 100) if total_students > 0 else 0
-        
-        # Tính tổng thời gian có mặt
-        total_minutes = sum(item['duration_minutes'] for item in attendance_data if item['duration_minutes'])
-        avg_duration = int(total_minutes / attended_students) if attended_students > 0 else 0
-
-        return jsonify({
-            'total_students': total_students,
-            'attended_students': attended_students,
-            'attendance_rate': round(attendance_rate, 2),
-            'avg_duration_minutes': avg_duration,
-            'total_duration_minutes': total_minutes
-        })
-    except Exception as e:
-        app.logger.error(f"Error getting statistics: {e}")
-        return jsonify({
-            'total_students': 0, 
-            'attended_students': 0, 
-            'attendance_rate': 0,
-            'avg_duration_minutes': 0,
-            'total_duration_minutes': 0
-        }), 500
-
-@app.route('/api/presence/active', methods=['GET'])
-def api_active_presence():
-    """API lấy danh sách sinh viên đang có mặt (đang được tracking)"""
-    try:
-        with presence_tracking_lock:
-            active_students = []
-            now = datetime.now()
-            
-            for student_id, data in presence_tracking.items():
-                check_in_time = data['check_in_time']
-                last_seen = data['last_seen']
-                duration_seconds = (now - check_in_time).total_seconds()
-                time_since_seen = (now - last_seen).total_seconds()
-                
-                active_students.append({
-                    'student_id': student_id,
-                    'name': data['name'],
-                    'check_in_time': check_in_time.isoformat(),
-                    'last_seen': last_seen.isoformat(),
-                    'duration_minutes': int(duration_seconds / 60),
-                    'seconds_since_seen': int(time_since_seen),
-                    'is_active': time_since_seen < 30  # Còn active nếu thấy trong 30s
-                })
-            
-            return jsonify({
-                'success': True,
-                'count': len(active_students),
-                'data': active_students
-            })
-    except Exception as e:
-        app.logger.error(f"Error getting active presence: {e}")
-        return jsonify({'success': False, 'data': [], 'error': str(e)}), 500
-
-@app.route('/api/attendance/today', methods=['GET'])
-def api_attendance_today():
-    """API lấy điểm danh hôm nay"""
-    try:
-        credit_class_id = request.args.get('credit_class_id', type=int)
-        session_id = request.args.get('session_id', type=int)
-
-        attendance_data = get_today_attendance(
-            credit_class_id=credit_class_id,
-            session_id=session_id,
-        )
-
-        session_row = None
-        if session_id:
-            session_row = db.get_session_by_id(session_id)
-        elif credit_class_id:
-            session_row = db.get_active_session_for_class(credit_class_id)
-        else:
-            session_row = get_active_attendance_session()
-
-        checked_in = []
-        checked_out = []
-        for item in attendance_data:
-            if item.get('checkout_time'):
-                checked_out.append(item)
-            else:
-                checked_in.append(item)
-        return jsonify({
-            'success': True,
-            'data': attendance_data,
-            'checked_in': checked_in,
-            'checked_out': checked_out,
-            'session': serialize_session_payload(session_row)
-        })
-    except Exception as e:
-        app.logger.error(f"Error getting today's attendance: {e}")
-        return jsonify({'success': False, 'data': [], 'error': str(e)}), 500
-
-
-@app.route('/api/attendance/history/<student_id>', methods=['GET'])
-def api_attendance_history(student_id):
-    """API trả về lịch sử điểm danh gần đây của một sinh viên"""
-    limit = request.args.get('limit', 10, type=int) or 10
-    limit = max(1, min(limit, 50))
-
-    try:
-        history_rows = db.get_student_attendance_history(student_id, limit) or []
-        student_info = db.get_student(student_id)
-
-        if not history_rows and not student_info:
-            return jsonify({'success': False, 'error': 'Không tìm thấy sinh viên'}), 404
-
-        class_name = None
-        student_name = None
-
-        if student_info:
-            student_info_dict = dict(student_info)
-            student_name = student_info_dict.get('full_name') or student_info_dict.get('name')
-            class_id = student_info_dict.get('class_id')
-            if class_id:
-                class_info = db.get_class_by_id(class_id)
-                if class_info:
-                    class_info_dict = dict(class_info)
-                    class_name = class_info_dict.get('class_name') or class_info_dict.get('name')
-
-        history = []
-        now = datetime.now()
-        status_class_map = {
-            'present': 'bg-success',
-            'late': 'bg-warning text-dark',
-            'absent': 'bg-danger',
-            'excused': 'bg-info text-dark'
-        }
-
-        summary = {
-            'total_sessions': len(history_rows),
-            'last_check_in': None,
-            'last_check_out': None,
-            'current_status': None,
-            'status_class': 'bg-secondary'
-        }
-
-        for index, row in enumerate(history_rows):
-            row_dict = dict(row)
-            check_in = parse_datetime_safe(row_dict.get('check_in_time'))
-            check_out = parse_datetime_safe(row_dict.get('check_out_time'))
-
-            # Nếu bảng attendance có lưu tên lớp trực tiếp
-            if not class_name and row_dict.get('class_name'):
-                class_name = row_dict.get('class_name')
-
-            if not student_name:
-                student_name = row_dict.get('student_name') or row_dict.get('full_name')
-
-            if check_in and check_out:
-                duration_seconds = max((check_out - check_in).total_seconds(), 0)
-            elif check_in:
-                duration_seconds = max((now - check_in).total_seconds(), 0)
-            else:
-                duration_seconds = 0
-
-            record = {
-                'attendance_date': row_dict.get('attendance_date'),
-                'check_in_time': row_dict.get('check_in_time'),
-                'check_out_time': row_dict.get('check_out_time'),
-                'status': row_dict.get('status'),
-                'duration_minutes': int(duration_seconds / 60),
-                'notes': row_dict.get('notes'),
-                'class_type': 'credit' if row_dict.get('credit_class_id') else 'administrative',
-                'class_display': row_dict.get('credit_class_name') or row_dict.get('class_name'),
-                'credit_class_code': row_dict.get('credit_class_code'),
-                'credit_class_id': row_dict.get('credit_class_id')
-            }
-            history.append(record)
-
-            if index == 0:
-                summary['last_check_in'] = row_dict.get('check_in_time')
-                summary['last_check_out'] = row_dict.get('check_out_time')
-                summary['current_status'] = row_dict.get('status')
-                summary['status_class'] = status_class_map.get(row_dict.get('status'), 'bg-secondary')
-
-        response_payload = {
-            'success': True,
-            'student_id': student_id,
-            'student_name': student_name or student_id,
-            'class_name': class_name,
-            'summary': summary,
-            'history': history
-        }
-
-        return jsonify(response_payload)
-    except Exception as e:
-        app.logger.error(f"Error getting attendance history for {student_id}: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@app.route('/api/events/stream')
-def api_events_stream():
-    """Server-Sent Events stream cho thông báo real-time"""
-    import json
-    
-    def event_stream():
-        # Tạo queue cho client này
-        client_queue = queue.Queue(maxsize=10)
-        
-        # Thêm vào danh sách clients
-        with sse_clients_lock:
-            sse_clients.append(client_queue)
-
-        initial_session = serialize_session_payload(get_active_attendance_session())
-        if initial_session:
-            try:
-                client_queue.put_nowait({'type': 'session_updated', 'data': initial_session})
-            except queue.Full:
-                pass
-        
-        try:
-            # Gửi event kết nối thành công
-            yield f"data: {json.dumps({'type': 'connected'})}\n\n"
-            
-            # Lắng nghe events từ queue
-            while True:
-                try:
-                    event_data = client_queue.get(timeout=30)
-                    yield f"data: {json.dumps(event_data)}\n\n"
-                except queue.Empty:
-                    # Gửi heartbeat để giữ kết nối
-                    yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
-        except GeneratorExit:
-            # Client đã ngắt kết nối
-            with sse_clients_lock:
-                if client_queue in sse_clients:
-                    sse_clients.remove(client_queue)
-    
-    return Response(event_stream(), mimetype='text/event-stream')
-
-
-@app.route('/api/attendance/notifications', methods=['GET'])
-def api_attendance_notifications():
-    """API trả về các thông báo điểm danh / hệ thống để frontend hiển thị"""
-    try:
-        notifications = []
-
-        # Lấy các bản ghi điểm danh gần đây (hôm nay) và chuyển thành thông báo
-        try:
-            session_row = get_active_attendance_session()
-            session_id = session_row.get('id') if session_row else None
-            credit_class_id = session_row.get('credit_class_id') if session_row else None
-            recent_att = db.get_today_attendance(
-                session_id=session_id,
-                credit_class_id=credit_class_id,
-            )
-            # Chỉ lấy 5 bản ghi gần nhất
-            for row in recent_att[:5]:
-                msg = f"{row.get('student_name') or row.get('full_name')} đã điểm danh"
-                ts = row.get('check_in_time')
-                notifications.append({'message': msg, 'type': 'success', 'timestamp': ts})
-        except Exception as e:
-            app.logger.debug(f"Không lấy được attendance để làm notifications: {e}")
-
-        # Lấy system logs gần nhất để hiển thị
-        try:
-            logs = db.get_system_logs(limit=10)
-            for log in logs:
-                level = (log.get('log_level') if isinstance(log, dict) else log['log_level'])
-                message = (log.get('message') if isinstance(log, dict) else log['message'])
-                ts = (log.get('created_at') if isinstance(log, dict) else log['created_at'])
-                # Map level -> bootstrap alert type
-                if level and level.upper() in ('ERROR', 'CRITICAL'):
-                    ntype = 'danger'
-                elif level and level.upper() in ('WARNING',):
-                    ntype = 'warning'
-                else:
-                    ntype = 'info'
-
-                notifications.append({'message': message, 'type': ntype, 'timestamp': ts})
-        except Exception as e:
-            app.logger.debug(f"Không lấy được system logs cho notifications: {e}")
-
-        return jsonify({'notifications': notifications})
-    except Exception as e:
-        app.logger.error(f"Error building notifications: {e}")
-        return jsonify({'notifications': []}), 500
-
-@app.route('/update_faces', methods=['POST'])
-def update_faces():
-    """API cập nhật khuôn mặt"""
-    try:
-        load_known_faces()
-        return 'Cap nhat thanh cong', 200
-    except Exception as e:
-        app.logger.error(f"Error updating faces: {e}")
-        return f'Loi: {e}', 500
-
-# ===== CÁC ROUTE HUẤN LUYỆN AI NÂNG CAO =====
-
-@app.route('/api/train/start', methods=['POST'])
-def api_train_start():
-    """Bắt đầu training classifier với FaceNet embeddings"""
-    if not USE_FACENET or face_service is None:
-        return jsonify({'error': 'FaceNet service not available'}), 400
-    
-    try:
-        # Khởi tạo training service nếu chưa có
-        global training_service
-        if training_service is None:
-            from services.training_service import TrainingService
-            training_service = TrainingService(face_service)
-        
-        # Kiểm tra trước khi huấn luyện: đảm bảo mỗi sinh viên có đủ mẫu theo cấu hình
-        stats = training_service.get_training_stats()
-        not_ready = [s for s in (stats.get('students') or []) if not s.get('ready')]
-        if not_ready:
-            return jsonify({
-                'success': False,
-                'error': 'Insufficient training data',
-                'details': {
-                    'min_required': stats.get('min_samples_required'),
-                    'students': not_ready
-                }
-            }), 400
-
-        # Train classifier
-        success = training_service.train_classifier()
-
-        if success:
-            stats = training_service.get_training_stats()
-            return jsonify({
-                'success': True,
-                'message': 'Training completed successfully',
-                'stats': stats
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'error': 'Training failed - see server logs'
-            }), 500
-    
-    except Exception as e:
-        app.logger.error(f"Training error: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/train/status', methods=['GET'])
-def api_train_status():
-    """Lấy thông tin về training data"""
-    if not USE_FACENET or face_service is None:
-        return jsonify({'error': 'FaceNet service not available'}), 400
-    
-    try:
-        global training_service
-        if training_service is None:
-            from services.training_service import TrainingService
-            training_service = TrainingService(face_service)
-        
-        stats = training_service.get_training_stats()
-        return jsonify({'success': True, 'stats': stats})
-    
-    except Exception as e:
-        app.logger.error(f"Error getting training status: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/antispoof/check', methods=['POST'])
-def api_antispoof_check():
-    """Kiểm tra anti-spoofing cho frame hiện tại"""
-    if not USE_FACENET or antispoof_service is None:
-        return jsonify({'error': 'Anti-spoof service not available'}), 400
-    
-    try:
-        # Lấy ảnh từ request (base64 hoặc tải lên file)
-        if 'image_data' in request.form:
-            # Ảnh Base64
-            image_data = request.form['image_data']
-            if ',' in image_data:
-                image_data = image_data.split(',')[1]
-            
-            img_bytes = base64.b64decode(image_data)
-            nparr = np.frombuffer(img_bytes, np.uint8)
-            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        elif 'image' in request.files:
-            # Tải lên file
-            file = request.files['image']
-            img_bytes = file.read()
-            nparr = np.frombuffer(img_bytes, np.uint8)
-            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        else:
-            return jsonify({'error': 'No image provided'}), 400
-        
-        # Kiểm tra giả mạo
-        result = antispoof_service.check_frame(frame)
-        
-        return jsonify({
-            'success': True,
-            'is_real': result['is_real'],
-            'confidence': result['confidence'],
-            'message': result['message'],
-            'bbox': result['bbox']
-        })
-    
-    except Exception as e:
-        app.logger.error(f"Anti-spoof check error: {e}")
-        return jsonify({'error': str(e)}), 500
+# =============================================================================
+# CÁC ROUTES ĐÃ ĐƯỢC MIGRATE SANG BLUEPRINTS
+# =============================================================================
+# /status -> app/routes/main.py
+# /api/quick-register -> app/routes/api_register.py
+# /api/attendance/* -> app/routes/api_attendance.py
+# /api/statistics -> app/routes/api_stats.py
+# /api/presence/active -> app/routes/api_stats.py
+# /api/events/stream -> app/routes/api_events.py
+# /api/attendance/notifications -> app/routes/api_events.py
+# /update_faces, /api/train/*, /api/antispoof/* -> app/routes/api_training.py
+# =============================================================================
+
+
+# API ROUTES (cần migrate dần sang app/routes/)
+# Các page routes đã được di chuyển sang app/routes/main.py
+# /api/students routes đã được di chuyển sang app/routes/api_students.py
+# =============================================================================
+# /api/classes routes đã được di chuyển sang app/routes/api_classes.py
+# /api/credit-classes routes đã được di chuyển sang app/routes/api_credit_classes.py
+# =============================================================================
+
+
+
+
+# /api/attendance/* routes đã được di chuyển sang app/routes/api_attendance.py
+# /api/statistics, /api/presence/active routes đã được di chuyển sang app/routes/api_stats.py
+# /api/events/stream, /api/attendance/notifications routes đã được di chuyển sang app/routes/api_events.py
+# /api/train/*, /api/antispoof/*, /update_faces routes đã được di chuyển sang app/routes/api_training.py
+# =============================================================================
+
+# =============================================================================
+# NOTE: Các routes training và antispoof đã được migrate sang app/routes/api_training.py
+# Đã xóa các routes trùng lặp: /api/train/start, /api/train/status, /api/antispoof/check
+# =============================================================================
 
 
 # Các hàm helper

@@ -1,5 +1,5 @@
 {% extends 'base.html' %} {% set active_page = active_page|default('login') %}
-{% block title %}Đăng nhập hệ thống{% endblock %} {% block content %}
+{% block title %}{{ _('auth.login_title') }}{% endblock %} {% block content %}
 <div class="row justify-content-center align-items-center login-wrapper">
   <div class="col-md-6 col-lg-4">
     <div class="card shadow-sm border-0">
@@ -10,8 +10,8 @@
             alt="Logo"
             class="mb-3 login-logo"
           />
-          <h5 class="fw-bold">Đăng nhập hệ thống</h5>
-          <p class="text-muted small mb-0">Quản lý điểm danh thông minh</p>
+          <h5 class="fw-bold">{{ _('auth.login_title') }}</h5>
+          <p class="text-muted small mb-0">{{ _('app_name') }}</p>
         </div>
         {% if error %}
         <div class="alert alert-danger" role="alert">
@@ -23,7 +23,7 @@
           <input type="hidden" name="next" value="{{ next_url }}" />
           {% endif %}
           <div class="mb-3">
-            <label class="form-label" for="username">Tên đăng nhập</label>
+            <label class="form-label" for="username">{{ _('auth.username') }}</label>
             <input
               type="text"
               class="form-control"
@@ -35,7 +35,7 @@
             />
           </div>
           <div class="mb-3">
-            <label class="form-label" for="password">Mật khẩu</label>
+            <label class="form-label" for="password">{{ _('auth.password') }}</label>
             <input
               type="password"
               class="form-control"
@@ -46,13 +46,13 @@
             />
           </div>
           <button type="submit" class="btn btn-primary w-100">
-            <i class="fas fa-sign-in-alt me-1"></i>Đăng nhập
+            <i class="fas fa-sign-in-alt me-1"></i>{{ _('nav.login') }}
           </button>
         </form>
       </div>
     </div>
     <p class="text-center text-muted mt-3 small">
-      Liên hệ quản trị viên nếu bạn quên mật khẩu hoặc cần cấp tài khoản mới.
+      {{ _('auth.contact_admin') }}
     </p>
   </div>
 </div>
